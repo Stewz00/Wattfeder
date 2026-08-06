@@ -4,10 +4,13 @@ PACKAGES ?= ./...
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check verify validate fmt fmt-check mod-tidy-check mod-verify vet test build
+.PHONY: help run check verify validate fmt fmt-check mod-tidy-check mod-verify vet test build
 
 help: ## Show the available targets.
 	@awk 'BEGIN {FS = ":.*## "; printf "Usage: make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+run: ## Run the Wattfeder application.
+	@$(GO) run ./cmd/wattfeder
 
 check: verify validate ## Run all verification and validation checks.
 
