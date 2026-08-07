@@ -1,0 +1,4 @@
+interface:
+  display_name: "Coding File Docs"
+  short_description: "Format code comments for clarity"
+  default_prompt: "Use $coding-file-docs to format and review code comments."
