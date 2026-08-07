@@ -11,8 +11,10 @@ Milestone v0.1 is in progress. The simulator currently produces one
 deterministic 24-hour UTC timeline containing photovoltaic (PV) power,
 household load, electricity price, and a battery state of charge that evolves
 from interval energy flows within physical capacity bounds. Valid telemetry can
-initialize and update the latest in-memory state for one household device. The
-control policy and runnable application pipeline are not wired yet.
+initialize and update the latest in-memory state for one household device. A
+deterministic policy produces charge, discharge, or idle commands with
+human-readable reasons from PV surplus, household load, battery SOC, and
+electricity price. The runnable application pipeline is not wired yet.
 
 Run the automated checks with:
 

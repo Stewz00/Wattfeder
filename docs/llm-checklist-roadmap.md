@@ -36,8 +36,8 @@ visible instead of treating them as complete.
 
 - [x] Validate incoming telemetry independently from simulator configuration.
 - [x] Apply telemetry to household state.
-- [ ] Implement charge, discharge, and idle control decisions.
-- [ ] Include a human-readable reason with every decision.
+- [x] Implement charge, discharge, and idle control decisions.
+- [x] Include a human-readable reason with every decision.
 - [ ] Connect simulator, state update, policy, command, and output in one data flow.
 
 ### Application behavior
@@ -52,7 +52,7 @@ visible instead of treating them as complete.
 - [x] Cover daily timeline boundaries and repeatability.
 - [x] Cover profile invariants and seeded variation.
 - [x] Cover telemetry validation boundaries.
-- [ ] Cover control-policy boundaries with table-driven tests.
+- [x] Cover control-policy boundaries with table-driven tests.
 - [ ] Document setup, execution, assumptions, and example output in the README.
 
 ### Current behavior and gaps
@@ -63,8 +63,12 @@ configured value, then evolves from the interval's PV-minus-load energy while
 remaining between empty and full. Battery state carries across repeated daily
 simulation calls. Valid telemetry initializes and replaces the latest in-memory
 state for one device. Invalid telemetry and events from a different device are
-rejected without changing that state. Control commands do not affect SOC yet,
-and the application pipeline is not connected.
+rejected without changing that state. The deterministic policy charges from a
+PV surplus while the battery is below full, and discharges a load deficit only
+when the electricity price is at least EUR 0.30/kWh and battery SOC is above
+the 20% reserve. Other conditions produce an idle command. Every command has a
+human-readable reason and a non-negative power magnitude. Control commands do
+not affect SOC yet, and the application pipeline is not connected.
 
 ### Decisions to preserve
 
@@ -100,12 +104,21 @@ and the application pipeline is not connected.
   with a different device ID are rejected without changing state.
 - Applying an invalid telemetry event leaves both initialized and uninitialized
   state unchanged.
+- PV surplus produces a charge command for the surplus power unless the battery
+  is full.
+- A load deficit produces a discharge command for the deficit power only when
+  battery SOC is above 20% and electricity price is at least EUR 0.30/kWh.
+- Balanced power, a full battery during surplus, the battery reserve, and a
+  price below the discharge threshold produce idle commands with zero power.
+- Command power is a non-negative magnitude; the decision carries its charge,
+  discharge, or idle meaning.
+- Every control decision includes a human-readable reason derived from the
+  applicable policy threshold.
 
 ### Next task
 
-Implement deterministic charge, discharge, and idle decisions from household
-state. Define policy thresholds and human-readable reasons, then cover the
-boundaries with table-driven tests.
+Connect the simulator, state update, policy, command, and structured output in
+the runnable application data flow.
 
 ## Later milestones
 

@@ -14,8 +14,8 @@ The current milestone should remain the main focus. Later milestones describe po
 | v0.2–v0.7 | Planned |
 
 The deterministic simulator, battery state evolution, telemetry validation,
-and latest in-memory state for one household device are complete. Control
-decisions, application output, and graceful shutdown still remain for v0.1.
+latest in-memory state, and control policy for one household device are
+complete. Application output and graceful shutdown still remain for v0.1.
 
 ---
 
