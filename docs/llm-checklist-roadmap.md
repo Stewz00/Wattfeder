@@ -34,7 +34,7 @@ visible instead of treating them as complete.
 
 ### Processing and control
 
-- [ ] Validate incoming telemetry independently from simulator configuration.
+- [x] Validate incoming telemetry independently from simulator configuration.
 - [ ] Apply telemetry to household state.
 - [ ] Implement charge, discharge, and idle control decisions.
 - [ ] Include a human-readable reason with every decision.
@@ -51,7 +51,7 @@ visible instead of treating them as complete.
 - [x] Cover simulator configuration with table-driven tests.
 - [x] Cover daily timeline boundaries and repeatability.
 - [x] Cover profile invariants and seeded variation.
-- [ ] Cover telemetry validation boundaries.
+- [x] Cover telemetry validation boundaries.
 - [ ] Cover control-policy boundaries with table-driven tests.
 - [ ] Document setup, execution, assumptions, and example output in the README.
 
@@ -61,8 +61,9 @@ The simulator emits timestamp, device ID, battery SOC, and seeded photovoltaic,
 household load, and electricity price profiles. Battery SOC starts at the
 configured value, then evolves from the interval's PV-minus-load energy while
 remaining between empty and full. Battery state carries across repeated daily
-simulation calls. Control commands do not affect SOC yet, and the application
-pipeline is not connected.
+simulation calls. Telemetry can be validated independently, but is not yet
+applied to household state. Control commands do not affect SOC yet, and the
+application pipeline is not connected.
 
 ### Decisions to preserve
 
@@ -88,12 +89,16 @@ pipeline is not connected.
   peak, and higher evening peak.
 - One seeded factor scales each profile for the whole simulated day, preserving
   its daily shape.
+- Valid telemetry requires a non-zero timestamp and a non-blank device ID.
+- Telemetry power measurements must be finite and non-negative, battery SOC
+  must be finite and between 0% and 100%, and electricity price must be finite
+  and greater than zero.
 
 ### Next task
 
-Validate incoming telemetry independently from simulator configuration. Define
-field-level boundaries and cover valid edge cases, non-finite measurements, and
-invalid identifiers and timestamps with table-driven tests.
+Apply validated telemetry to household state. Define which state is retained
+for one device and cover state initialization and successive updates with
+focused tests.
 
 ## Later milestones
 
