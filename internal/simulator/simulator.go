@@ -9,6 +9,25 @@ import (
 	"github.com/Stewz00/wattfeder/internal/household"
 )
 
+// These fixed parameters describe a simple synthetic daily profile
+// Peak widths are Gaussian standard deviations in hours; peak scales add multiples of base load.
+const (
+	hoursPerDay        = 24.0
+	pvSunriseHour      = 6.0
+	pvSunsetHour       = 18.0
+	pvDailyFactorMin   = 0.8
+	pvDailyFactorMax   = 1.0
+	loadDailyFactorMin = 0.85
+	loadDailyFactorMax = 1.15
+
+	loadMorningPeakHour       = 7.0
+	loadMorningPeakWidthHours = 1.5
+	loadMorningPeakScale      = 1.5
+	loadEveningPeakHour       = 19.0
+	loadEveningPeakWidthHours = 2.0
+	loadEveningPeakScale      = 2.5
+)
+
 // Simulator owns the timeline and random stream for one reproducible household run
 type Simulator struct {
 	cfg         Config
@@ -59,23 +78,6 @@ func (s *Simulator) SimulateDay() []household.Telemetry {
 
 	return events
 }
-
-const (
-	hoursPerDay        = 24.0
-	pvSunriseHour      = 6.0
-	pvSunsetHour       = 18.0
-	pvDailyFactorMin   = 0.8
-	pvDailyFactorMax   = 1.0
-	loadDailyFactorMin = 0.85
-	loadDailyFactorMax = 1.15
-
-	loadMorningPeakHour       = 7.0
-	loadMorningPeakWidthHours = 1.5
-	loadMorningPeakScale      = 1.5
-	loadEveningPeakHour       = 19.0
-	loadEveningPeakWidthHours = 2.0
-	loadEveningPeakScale      = 2.5
-)
 
 func (s *Simulator) pvPowerKW(at time.Time, dailyFactor float64) float64 {
 	hour := hourOfDay(at)
