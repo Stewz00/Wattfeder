@@ -28,8 +28,9 @@ visible instead of treating them as complete.
 - [x] Generate a plausible photovoltaic production profile.
 - [x] Generate a plausible household consumption profile.
 - [x] Generate a simulated electricity price profile.
-- [ ] Evolve battery SOC from interval energy flows and control commands.
-- [ ] Enforce physical bounds and units across generated values.
+- [x] Evolve battery SOC from interval energy flows.
+- [ ] Apply control commands to battery SOC evolution.
+- [x] Enforce physical bounds and units across generated values.
 
 ### Processing and control
 
@@ -56,11 +57,12 @@ visible instead of treating them as complete.
 
 ### Current behavior and gaps
 
-The simulator emits timestamp, device ID, the configured initial battery SOC,
-and seeded photovoltaic, household load, and electricity price profiles. PV
-follows a daylight curve, load has morning and evening peaks, and price has a
-midday dip and evening peak. All three profiles vary reproducibly by seed.
-Battery SOC does not evolve yet, and the application pipeline is not connected.
+The simulator emits timestamp, device ID, battery SOC, and seeded photovoltaic,
+household load, and electricity price profiles. Battery SOC starts at the
+configured value, then evolves from the interval's PV-minus-load energy while
+remaining between empty and full. Battery state carries across repeated daily
+simulation calls. Control commands do not affect SOC yet, and the application
+pipeline is not connected.
 
 ### Decisions to preserve
 
@@ -71,6 +73,13 @@ Battery SOC does not evolve yet, and the application pipeline is not connected.
 - A simulator owns its clock and random stream; separate instances cannot alter
   each other's random sequence.
 - Calling `SimulateDay` advances the same simulator to the next day.
+- Each telemetry event reports battery SOC at its timestamp; that event's power
+  flow determines the SOC reported at the next timestamp.
+- Battery-relative power is positive when charging and negative when
+  discharging. The simulator derives it as PV power minus load power.
+- Interval energy in kWh equals power in kW multiplied by interval hours.
+- Battery energy is clamped between zero and configured capacity; excess
+  generation or unmet demand is implicitly exchanged with the grid.
 - Photovoltaic generation is zero outside 06:00–18:00 UTC and follows a sine
   curve during daylight, scaled to 80–100% of configured peak power by the seed.
 - Household load remains positive and follows smooth morning and evening peaks,
@@ -82,9 +91,9 @@ Battery SOC does not evolve yet, and the application pipeline is not connected.
 
 ### Next task
 
-Evolve battery SOC from interval energy flows. Define the power-flow sign
-convention, convert kW over the interval to kWh, and enforce capacity and SOC
-bounds with tests.
+Validate incoming telemetry independently from simulator configuration. Define
+field-level boundaries and cover valid edge cases, non-finite measurements, and
+invalid identifiers and timestamps with table-driven tests.
 
 ## Later milestones
 

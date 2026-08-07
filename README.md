@@ -9,9 +9,9 @@ observability, and deployment.
 
 Milestone v0.1 is in progress. The simulator currently produces one
 deterministic 24-hour UTC timeline containing photovoltaic (PV) power,
-household load, electricity price, and a fixed battery state of charge. The
-battery model, control policy, and runnable application pipeline are not wired
-yet.
+household load, electricity price, and a battery state of charge that evolves
+from interval energy flows within physical capacity bounds. The control policy
+and runnable application pipeline are not wired yet.
 
 Run the automated checks with:
 

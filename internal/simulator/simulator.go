@@ -38,13 +38,17 @@ const (
 	priceEveningPeakHour       = 19.0
 	priceEveningPeakWidthHours = 2.0
 	priceEveningPeakScale      = 0.65
+
+	minimumBatterySOCPercent = 0.0
+	maximumBatterySOCPercent = 100.0
 )
 
 // Simulator owns the timeline and random stream for one reproducible household run.
 type Simulator struct {
-	cfg         Config
-	currentTime time.Time
-	rng         *rand.Rand
+	cfg               Config
+	currentTime       time.Time
+	batterySOCPercent float64
+	rng               *rand.Rand
 }
 
 func New(cfg Config) (*Simulator, error) {
@@ -58,9 +62,10 @@ func New(cfg Config) (*Simulator, error) {
 	rng := rand.New(rand.NewSource(cfg.Seed))
 
 	return &Simulator{
-		cfg:         cfg,
-		currentTime: cfg.Start,
-		rng:         rng,
+		cfg:               cfg,
+		currentTime:       cfg.Start,
+		batterySOCPercent: cfg.StartingBatterySOCPercent,
+		rng:               rng,
 	}, nil
 }
 
@@ -77,19 +82,46 @@ func (s *Simulator) SimulateDay() []household.Telemetry {
 
 	// Emit the exact half-open window [start, start+24h), one event per interval
 	for s.currentTime.Before(destinationTime) {
+		pvPowerKW := s.pvPowerKW(s.currentTime, dailyPVFactor)
+		loadPowerKW := s.loadPowerKW(s.currentTime, dailyLoadFactor)
 		event := household.Telemetry{
 			Timestamp:         s.currentTime,
 			DeviceID:          s.cfg.DeviceID,
-			PVPowerKW:         s.pvPowerKW(s.currentTime, dailyPVFactor),
-			LoadPowerKW:       s.loadPowerKW(s.currentTime, dailyLoadFactor),
-			BatterySOCPercent: s.cfg.StartingBatterySOCPercent,
+			PVPowerKW:         pvPowerKW,
+			LoadPowerKW:       loadPowerKW,
+			BatterySOCPercent: s.batterySOCPercent,
 			PriceEURPerKWh:    s.priceEURPerKWh(s.currentTime, dailyPriceFactor),
 		}
+
+		// Positive battery power charges the battery; negative power discharges it
+		// Any energy beyond the battery's bounds is implicitly exchanged with the grid
+		batteryPowerKW := pvPowerKW - loadPowerKW
+		s.batterySOCPercent = nextBatterySOCPercent(
+			s.batterySOCPercent,
+			batteryPowerKW,
+			s.cfg.Interval,
+			s.cfg.BatteryCapacityKWh,
+		)
 		s.currentTime = s.currentTime.Add(s.cfg.Interval)
 		events = append(events, event)
 	}
 
 	return events
+}
+
+func nextBatterySOCPercent(currentSOCPercent, batteryPowerKW float64, interval time.Duration, capacityKWh float64) float64 {
+	currentEnergyKWh := currentSOCPercent / maximumBatterySOCPercent * capacityKWh
+	intervalEnergyKWh := batteryPowerKW * interval.Hours()
+	nextEnergyKWh := currentEnergyKWh + intervalEnergyKWh
+
+	if nextEnergyKWh <= 0 {
+		return minimumBatterySOCPercent
+	}
+	if nextEnergyKWh >= capacityKWh {
+		return maximumBatterySOCPercent
+	}
+
+	return nextEnergyKWh / capacityKWh * maximumBatterySOCPercent
 }
 
 func (s *Simulator) pvPowerKW(at time.Time, dailyFactor float64) float64 {

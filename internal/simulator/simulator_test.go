@@ -50,6 +50,7 @@ func TestSimulatorSimulateDay(t *testing.T) {
 		t.Fatalf("SimulateDay() returned %d events, want %d", len(events), wantCount)
 	}
 
+	wantBatteryEnergyKWh := cfg.StartingBatterySOCPercent / 100 * cfg.BatteryCapacityKWh
 	for i, event := range events {
 		wantTimestamp := cfg.Start.UTC().Add(time.Duration(i) * cfg.Interval)
 		if !event.Timestamp.Equal(wantTimestamp) {
@@ -58,14 +59,37 @@ func TestSimulatorSimulateDay(t *testing.T) {
 		if event.DeviceID != cfg.DeviceID {
 			t.Errorf("event %d device ID = %q, want %q", i, event.DeviceID, cfg.DeviceID)
 		}
-		if event.BatterySOCPercent != cfg.StartingBatterySOCPercent {
-			t.Errorf(
-				"event %d battery SOC = %v, want %v",
-				i,
-				event.BatterySOCPercent,
-				cfg.StartingBatterySOCPercent,
-			)
+		if event.BatterySOCPercent < minimumBatterySOCPercent || event.BatterySOCPercent > maximumBatterySOCPercent {
+			t.Errorf("event %d battery SOC = %v, want within [0, 100]", i, event.BatterySOCPercent)
 		}
+
+		wantSOCPercent := wantBatteryEnergyKWh / cfg.BatteryCapacityKWh * 100
+		if math.Abs(event.BatterySOCPercent-wantSOCPercent) > 1e-12 {
+			t.Errorf("event %d battery SOC = %v, want %v from prior interval energy", i, event.BatterySOCPercent, wantSOCPercent)
+		}
+
+		intervalEnergyKWh := (event.PVPowerKW - event.LoadPowerKW) * cfg.Interval.Hours()
+		wantBatteryEnergyKWh += intervalEnergyKWh
+		wantBatteryEnergyKWh = math.Max(0, math.Min(cfg.BatteryCapacityKWh, wantBatteryEnergyKWh))
+	}
+
+	if events[0].BatterySOCPercent != cfg.StartingBatterySOCPercent {
+		t.Errorf(
+			"first event battery SOC = %v, want starting SOC %v",
+			events[0].BatterySOCPercent,
+			cfg.StartingBatterySOCPercent,
+		)
+	}
+
+	batteryStateChanged := false
+	for _, event := range events[1:] {
+		if event.BatterySOCPercent != cfg.StartingBatterySOCPercent {
+			batteryStateChanged = true
+			break
+		}
+	}
+	if !batteryStateChanged {
+		t.Error("battery SOC stayed at its starting value for the entire day, want interval energy flows to change it")
 	}
 
 	wantCurrentTime := cfg.Start.UTC().Add(24 * time.Hour)
@@ -81,7 +105,7 @@ func TestSimulatorSimulateDayAdvancesToNextDay(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	sim.SimulateDay()
+	firstDay := sim.SimulateDay()
 	secondDay := sim.SimulateDay()
 	if len(secondDay) == 0 {
 		t.Fatal("second SimulateDay() returned no events")
@@ -92,9 +116,94 @@ func TestSimulatorSimulateDayAdvancesToNextDay(t *testing.T) {
 		t.Errorf("second day starts at %v, want %v", secondDay[0].Timestamp, wantFirstTimestamp)
 	}
 
+	lastEvent := firstDay[len(firstDay)-1]
+	wantFirstSOC := nextBatterySOCPercent(
+		lastEvent.BatterySOCPercent,
+		lastEvent.PVPowerKW-lastEvent.LoadPowerKW,
+		cfg.Interval,
+		cfg.BatteryCapacityKWh,
+	)
+	if math.Abs(secondDay[0].BatterySOCPercent-wantFirstSOC) > 1e-12 {
+		t.Errorf("second day starts with battery SOC %v, want carried state %v", secondDay[0].BatterySOCPercent, wantFirstSOC)
+	}
+
 	wantCurrentTime := cfg.Start.UTC().Add(48 * time.Hour)
 	if !sim.currentTime.Equal(wantCurrentTime) {
 		t.Errorf("currentTime after two days = %v, want %v", sim.currentTime, wantCurrentTime)
+	}
+}
+
+func TestNextBatterySOCPercent(t *testing.T) {
+	tests := []struct {
+		name              string
+		currentSOCPercent float64
+		batteryPowerKW    float64
+		interval          time.Duration
+		capacityKWh       float64
+		wantSOCPercent    float64
+	}{
+		{
+			name:              "positive power charges",
+			currentSOCPercent: 50,
+			batteryPowerKW:    2,
+			interval:          30 * time.Minute,
+			capacityKWh:       10,
+			wantSOCPercent:    60,
+		},
+		{
+			name:              "negative power discharges",
+			currentSOCPercent: 50,
+			batteryPowerKW:    -2,
+			interval:          30 * time.Minute,
+			capacityKWh:       10,
+			wantSOCPercent:    40,
+		},
+		{
+			name:              "duration converts power to energy",
+			currentSOCPercent: 50,
+			batteryPowerKW:    4,
+			interval:          15 * time.Minute,
+			capacityKWh:       10,
+			wantSOCPercent:    60,
+		},
+		{
+			name:              "charge is capped at capacity",
+			currentSOCPercent: 95,
+			batteryPowerKW:    2,
+			interval:          time.Hour,
+			capacityKWh:       10,
+			wantSOCPercent:    100,
+		},
+		{
+			name:              "discharge is capped at empty",
+			currentSOCPercent: 5,
+			batteryPowerKW:    -2,
+			interval:          time.Hour,
+			capacityKWh:       10,
+			wantSOCPercent:    0,
+		},
+		{
+			name:              "zero power leaves state unchanged",
+			currentSOCPercent: 37,
+			batteryPowerKW:    0,
+			interval:          time.Hour,
+			capacityKWh:       10,
+			wantSOCPercent:    37,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := nextBatterySOCPercent(
+				tt.currentSOCPercent,
+				tt.batteryPowerKW,
+				tt.interval,
+				tt.capacityKWh,
+			)
+			if math.Abs(got-tt.wantSOCPercent) > 1e-12 {
+				t.Errorf("nextBatterySOCPercent() = %v, want %v", got, tt.wantSOCPercent)
+			}
+		})
 	}
 }
 

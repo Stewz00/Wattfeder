@@ -24,8 +24,9 @@ energy_kwh = power_kw × interval_hours
 
 For example, a steady 4 kW flow over a 15-minute (0.25-hour) interval transfers
 1 kWh. When interval energy is calculated, the sampled power is treated as
-constant until the next event. The current simulator keeps state of charge
-fixed.
+constant until the next event. An event reports the battery state at its
+timestamp; the event's power flow changes the state reported by the following
+event.
 
 PV and load are both non-negative measurements. Their difference describes the
 household balance before battery action:
@@ -35,8 +36,23 @@ surplus_power_kw = pv_power_kw - load_power_kw
 ```
 
 A positive result is surplus generation; a negative result is demand that must
-come from the battery or grid. This sign convention avoids encoding import or
-export as negative PV or load values.
+come from the battery or grid. The simulator treats this result as
+battery-relative power: positive power charges the battery and negative power
+discharges it. This sign convention avoids encoding import or export as
+negative PV or load values.
+
+Battery energy evolves once per interval:
+
+```text
+battery_energy_kwh += surplus_power_kw × interval_hours
+battery_soc_percent = 100 × battery_energy_kwh / battery_capacity_kwh
+```
+
+Stored energy is clamped to zero and the configured capacity. When generation
+would overfill the battery, the remaining surplus is implicitly exported to the
+grid. When demand would empty it, the remaining deficit is implicitly imported.
+The model currently assumes perfect charge and discharge efficiency and no
+battery power limit.
 
 ## Daily profiles
 
@@ -70,8 +86,7 @@ Deliberate simplifications:
 - Price models a positive time-of-use retail tariff, not volatile wholesale
   prices, taxes, or negative prices.
 - Profiles are independent; the price does not react to this household's load.
-- Battery losses, power limits, state evolution, and control commands are not
-  implemented yet.
+- Battery losses, power limits, and control commands are not implemented yet.
 
 These constraints keep v0.1 reproducible and make later reliability and control
 behavior testable without pretending the synthetic data is physically complete.
