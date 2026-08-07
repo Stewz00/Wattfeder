@@ -13,10 +13,9 @@ The current milestone should remain the main focus. Later milestones describe po
 | v0.1 — Single Household Simulation | In progress |
 | v0.2–v0.7 | Planned |
 
-The deterministic simulator timeline and its photovoltaic, household load, and
-electricity price profiles are complete. Battery state evolution is next.
-Telemetry processing, control decisions, application output, and graceful
-shutdown still remain for v0.1.
+The deterministic simulator, battery state evolution, telemetry validation,
+and latest in-memory state for one household device are complete. Control
+decisions, application output, and graceful shutdown still remain for v0.1.
 
 ---
 

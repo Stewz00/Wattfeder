@@ -35,7 +35,7 @@ visible instead of treating them as complete.
 ### Processing and control
 
 - [x] Validate incoming telemetry independently from simulator configuration.
-- [ ] Apply telemetry to household state.
+- [x] Apply telemetry to household state.
 - [ ] Implement charge, discharge, and idle control decisions.
 - [ ] Include a human-readable reason with every decision.
 - [ ] Connect simulator, state update, policy, command, and output in one data flow.
@@ -61,9 +61,10 @@ The simulator emits timestamp, device ID, battery SOC, and seeded photovoltaic,
 household load, and electricity price profiles. Battery SOC starts at the
 configured value, then evolves from the interval's PV-minus-load energy while
 remaining between empty and full. Battery state carries across repeated daily
-simulation calls. Telemetry can be validated independently, but is not yet
-applied to household state. Control commands do not affect SOC yet, and the
-application pipeline is not connected.
+simulation calls. Valid telemetry initializes and replaces the latest in-memory
+state for one device. Invalid telemetry and events from a different device are
+rejected without changing that state. Control commands do not affect SOC yet,
+and the application pipeline is not connected.
 
 ### Decisions to preserve
 
@@ -93,12 +94,18 @@ application pipeline is not connected.
 - Telemetry power measurements must be finite and non-negative, battery SOC
   must be finite and between 0% and 100%, and electricity price must be finite
   and greater than zero.
+- Household state retains the latest accepted timestamp, device ID, PV power,
+  load power, battery SOC, and electricity price for one device.
+- The first valid telemetry event establishes the state device ID. Later events
+  with a different device ID are rejected without changing state.
+- Applying an invalid telemetry event leaves both initialized and uninitialized
+  state unchanged.
 
 ### Next task
 
-Apply validated telemetry to household state. Define which state is retained
-for one device and cover state initialization and successive updates with
-focused tests.
+Implement deterministic charge, discharge, and idle decisions from household
+state. Define policy thresholds and human-readable reasons, then cover the
+boundaries with table-driven tests.
 
 ## Later milestones
 
