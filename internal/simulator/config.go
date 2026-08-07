@@ -16,8 +16,10 @@ type Config struct {
 	BatteryCapacityKWh        float64
 	StartingBatterySOCPercent float64
 	PVPeakPowerKW             float64
-	// TODO: load profile later
+	LoadBasePowerKW           float64
 }
+
+const simulationDuration = 24 * time.Hour
 
 func (c Config) Validate() error {
 	if c.Start.IsZero() {
@@ -28,24 +30,26 @@ func (c Config) Validate() error {
 		return fmt.Errorf("interval must be positive, got %s", c.Interval)
 	}
 
-	const simulationDuration = 24 * time.Hour
-
 	// A simulated day ends cleanly -> no partial interval sneaking in at the end
 	if simulationDuration%c.Interval != 0 {
 		return fmt.Errorf("interval must divide %s evenly, got %s", simulationDuration, c.Interval)
 	}
 
-	// NaN bypasses ordinary range comparisons
-	if math.IsNaN(c.BatteryCapacityKWh) || math.IsInf(c.BatteryCapacityKWh, 0) || c.BatteryCapacityKWh <= 0 {
+	// Reject non-finite values before applying ordinary range checks
+	if !isFinite(c.BatteryCapacityKWh) || c.BatteryCapacityKWh <= 0 {
 		return errors.New("battery capacity must be finite and greater than 0")
 	}
 
-	if math.IsNaN(c.StartingBatterySOCPercent) || math.IsInf(c.StartingBatterySOCPercent, 0) || c.StartingBatterySOCPercent < 0 || c.StartingBatterySOCPercent > 100 {
+	if !isFinite(c.StartingBatterySOCPercent) || c.StartingBatterySOCPercent < 0 || c.StartingBatterySOCPercent > 100 {
 		return errors.New("starting battery SOC must be finite and between 0 and 100")
 	}
 
-	if math.IsNaN(c.PVPeakPowerKW) || math.IsInf(c.PVPeakPowerKW, 0) || c.PVPeakPowerKW <= 0 {
+	if !isFinite(c.PVPeakPowerKW) || c.PVPeakPowerKW <= 0 {
 		return errors.New("PV peak power must be finite and greater than 0")
+	}
+
+	if !isFinite(c.LoadBasePowerKW) || c.LoadBasePowerKW <= 0 {
+		return errors.New("load base power must be finite and greater than 0")
 	}
 
 	if strings.TrimSpace(c.DeviceID) == "" {
@@ -53,4 +57,8 @@ func (c Config) Validate() error {
 	}
 
 	return nil
+}
+
+func isFinite(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0)
 }

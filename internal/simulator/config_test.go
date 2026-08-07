@@ -7,111 +7,47 @@ import (
 )
 
 func TestConfigValidate(t *testing.T) {
-	validConfig := Config{
-		Seed:                      42,
-		Start:                     time.Date(2026, 8, 7, 8, 0, 0, 0, time.UTC),
-		Interval:                  15 * time.Minute,
-		DeviceID:                  "home-001",
-		BatteryCapacityKWh:        10,
-		StartingBatterySOCPercent: 50,
-		PVPeakPowerKW:             6,
-	}
-
-	zeroSOC := validConfig
-	zeroSOC.StartingBatterySOCPercent = 0
-
-	fullSOC := validConfig
-	fullSOC.StartingBatterySOCPercent = 100
-
-	negativeSOC := validConfig
-	negativeSOC.StartingBatterySOCPercent = -1
-
-	aboveMaximumSOC := validConfig
-	aboveMaximumSOC.StartingBatterySOCPercent = 101
-
-	nanSOC := validConfig
-	nanSOC.StartingBatterySOCPercent = math.NaN()
-
-	infiniteSOC := validConfig
-	infiniteSOC.StartingBatterySOCPercent = math.Inf(1)
-
-	zeroCapacity := validConfig
-	zeroCapacity.BatteryCapacityKWh = 0
-
-	negativeCapacity := validConfig
-	negativeCapacity.BatteryCapacityKWh = -1
-
-	nanCapacity := validConfig
-	nanCapacity.BatteryCapacityKWh = math.NaN()
-
-	infiniteCapacity := validConfig
-	infiniteCapacity.BatteryCapacityKWh = math.Inf(1)
-
-	zeroPVPeakPower := validConfig
-	zeroPVPeakPower.PVPeakPowerKW = 0
-
-	negativePVPeakPower := validConfig
-	negativePVPeakPower.PVPeakPowerKW = -1
-
-	nanPVPeakPower := validConfig
-	nanPVPeakPower.PVPeakPowerKW = math.NaN()
-
-	infinitePVPeakPower := validConfig
-	infinitePVPeakPower.PVPeakPowerKW = math.Inf(1)
-
-	oneDayInterval := validConfig
-	oneDayInterval.Interval = 24 * time.Hour
-
-	unevenInterval := validConfig
-	unevenInterval.Interval = 7 * time.Minute
-
-	zeroInterval := validConfig
-	zeroInterval.Interval = 0
-
-	negativeInterval := validConfig
-	negativeInterval.Interval = -time.Minute
-
-	emptyDeviceID := validConfig
-	emptyDeviceID.DeviceID = ""
-
-	blankDeviceID := validConfig
-	blankDeviceID.DeviceID = " \t\n"
-
-	zeroStart := validConfig
-	zeroStart.Start = time.Time{}
-
 	tests := []struct {
 		name    string
-		cfg     Config
+		modify  func(*Config)
 		wantErr bool
 	}{
-		{name: "valid configuration", cfg: validConfig},
-		{name: "zero SOC is valid", cfg: zeroSOC},
-		{name: "full SOC is valid", cfg: fullSOC},
-		{name: "SOC below minimum", cfg: negativeSOC, wantErr: true},
-		{name: "SOC above maximum", cfg: aboveMaximumSOC, wantErr: true},
-		{name: "SOC is NaN", cfg: nanSOC, wantErr: true},
-		{name: "SOC is infinite", cfg: infiniteSOC, wantErr: true},
-		{name: "capacity is zero", cfg: zeroCapacity, wantErr: true},
-		{name: "capacity is negative", cfg: negativeCapacity, wantErr: true},
-		{name: "capacity is NaN", cfg: nanCapacity, wantErr: true},
-		{name: "capacity is infinite", cfg: infiniteCapacity, wantErr: true},
-		{name: "PV peak power is zero", cfg: zeroPVPeakPower, wantErr: true},
-		{name: "PV peak power is negative", cfg: negativePVPeakPower, wantErr: true},
-		{name: "PV peak power is NaN", cfg: nanPVPeakPower, wantErr: true},
-		{name: "PV peak power is infinite", cfg: infinitePVPeakPower, wantErr: true},
-		{name: "one day interval is valid", cfg: oneDayInterval},
-		{name: "interval does not divide one day", cfg: unevenInterval, wantErr: true},
-		{name: "interval is zero", cfg: zeroInterval, wantErr: true},
-		{name: "interval is negative", cfg: negativeInterval, wantErr: true},
-		{name: "device ID is empty", cfg: emptyDeviceID, wantErr: true},
-		{name: "device ID contains only whitespace", cfg: blankDeviceID, wantErr: true},
-		{name: "start is zero", cfg: zeroStart, wantErr: true},
+		{name: "valid configuration"},
+		{name: "zero SOC is valid", modify: func(cfg *Config) { cfg.StartingBatterySOCPercent = 0 }},
+		{name: "full SOC is valid", modify: func(cfg *Config) { cfg.StartingBatterySOCPercent = 100 }},
+		{name: "SOC below minimum", modify: func(cfg *Config) { cfg.StartingBatterySOCPercent = -1 }, wantErr: true},
+		{name: "SOC above maximum", modify: func(cfg *Config) { cfg.StartingBatterySOCPercent = 101 }, wantErr: true},
+		{name: "SOC is NaN", modify: func(cfg *Config) { cfg.StartingBatterySOCPercent = math.NaN() }, wantErr: true},
+		{name: "SOC is infinite", modify: func(cfg *Config) { cfg.StartingBatterySOCPercent = math.Inf(1) }, wantErr: true},
+		{name: "capacity is zero", modify: func(cfg *Config) { cfg.BatteryCapacityKWh = 0 }, wantErr: true},
+		{name: "capacity is negative", modify: func(cfg *Config) { cfg.BatteryCapacityKWh = -1 }, wantErr: true},
+		{name: "capacity is NaN", modify: func(cfg *Config) { cfg.BatteryCapacityKWh = math.NaN() }, wantErr: true},
+		{name: "capacity is infinite", modify: func(cfg *Config) { cfg.BatteryCapacityKWh = math.Inf(1) }, wantErr: true},
+		{name: "PV peak power is zero", modify: func(cfg *Config) { cfg.PVPeakPowerKW = 0 }, wantErr: true},
+		{name: "PV peak power is negative", modify: func(cfg *Config) { cfg.PVPeakPowerKW = -1 }, wantErr: true},
+		{name: "PV peak power is NaN", modify: func(cfg *Config) { cfg.PVPeakPowerKW = math.NaN() }, wantErr: true},
+		{name: "PV peak power is infinite", modify: func(cfg *Config) { cfg.PVPeakPowerKW = math.Inf(1) }, wantErr: true},
+		{name: "load base power is zero", modify: func(cfg *Config) { cfg.LoadBasePowerKW = 0 }, wantErr: true},
+		{name: "load base power is negative", modify: func(cfg *Config) { cfg.LoadBasePowerKW = -1 }, wantErr: true},
+		{name: "load base power is NaN", modify: func(cfg *Config) { cfg.LoadBasePowerKW = math.NaN() }, wantErr: true},
+		{name: "load base power is infinite", modify: func(cfg *Config) { cfg.LoadBasePowerKW = math.Inf(1) }, wantErr: true},
+		{name: "one day interval is valid", modify: func(cfg *Config) { cfg.Interval = simulationDuration }},
+		{name: "interval does not divide one day", modify: func(cfg *Config) { cfg.Interval = 7 * time.Minute }, wantErr: true},
+		{name: "interval is zero", modify: func(cfg *Config) { cfg.Interval = 0 }, wantErr: true},
+		{name: "interval is negative", modify: func(cfg *Config) { cfg.Interval = -time.Minute }, wantErr: true},
+		{name: "device ID is empty", modify: func(cfg *Config) { cfg.DeviceID = "" }, wantErr: true},
+		{name: "device ID contains only whitespace", modify: func(cfg *Config) { cfg.DeviceID = " \t\n" }, wantErr: true},
+		{name: "start is zero", modify: func(cfg *Config) { cfg.Start = time.Time{} }, wantErr: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.cfg.Validate()
+			cfg := validSimulatorConfig()
+			if tt.modify != nil {
+				tt.modify(&cfg)
+			}
+
+			err := cfg.Validate()
 			gotErr := err != nil
 
 			if gotErr != tt.wantErr {

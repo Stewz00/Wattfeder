@@ -34,39 +34,83 @@ func New(cfg Config) (*Simulator, error) {
 }
 
 func (s *Simulator) SimulateDay() []household.Telemetry {
-	eventCount := int((24 * time.Hour) / s.cfg.Interval)
-	tel := make([]household.Telemetry, 0, eventCount)
+	// Config validation guarantees that Interval divides 24 hours exactly
+	eventCount := int(simulationDuration / s.cfg.Interval)
+	events := make([]household.Telemetry, 0, eventCount)
 
-	destinationTime := s.currentTime.Add(24 * time.Hour)
-	dailyPVFactor := 0.8 + 0.2*s.rng.Float64()
+	destinationTime := s.currentTime.Add(simulationDuration)
+	// Keep each profile's shape stable within the simulated day while varying
+	// its overall level reproducibly between days
+	dailyPVFactor := s.randomFactor(pvDailyFactorMin, pvDailyFactorMax)
+	dailyLoadFactor := s.randomFactor(loadDailyFactorMin, loadDailyFactorMax)
 
-	// Include this run's start; leave its end boundary for the next run
-	// -> [interval)
+	// Emit the exact half-open window [start, start+24h), one event per interval
 	for s.currentTime.Before(destinationTime) {
 		event := household.Telemetry{
 			Timestamp:         s.currentTime,
 			DeviceID:          s.cfg.DeviceID,
 			PVPowerKW:         s.pvPowerKW(s.currentTime, dailyPVFactor),
+			LoadPowerKW:       s.loadPowerKW(s.currentTime, dailyLoadFactor),
 			BatterySOCPercent: s.cfg.StartingBatterySOCPercent,
 		}
 		s.currentTime = s.currentTime.Add(s.cfg.Interval)
-		tel = append(tel, event)
+		events = append(events, event)
 	}
 
-	return tel
+	return events
 }
 
 const (
-	pvSunriseHour = 6.0
-	pvSunsetHour  = 18.0
+	hoursPerDay        = 24.0
+	pvSunriseHour      = 6.0
+	pvSunsetHour       = 18.0
+	pvDailyFactorMin   = 0.8
+	pvDailyFactorMax   = 1.0
+	loadDailyFactorMin = 0.85
+	loadDailyFactorMax = 1.15
+
+	loadMorningPeakHour       = 7.0
+	loadMorningPeakWidthHours = 1.5
+	loadMorningPeakScale      = 1.5
+	loadEveningPeakHour       = 19.0
+	loadEveningPeakWidthHours = 2.0
+	loadEveningPeakScale      = 2.5
 )
 
 func (s *Simulator) pvPowerKW(at time.Time, dailyFactor float64) float64 {
-	hour := float64(at.Hour()) + float64(at.Minute())/60 + float64(at.Second())/3600
+	hour := hourOfDay(at)
 	if hour <= pvSunriseHour || hour >= pvSunsetHour {
 		return 0
 	}
 
+	// Map 06:00–18:00 linearly to (0, 1). sin(pi*x) is zero at both
+	// boundaries, reaches one at noon, and stays positive during daylight
 	daylightProgress := (hour - pvSunriseHour) / (pvSunsetHour - pvSunriseHour)
 	return s.cfg.PVPeakPowerKW * dailyFactor * math.Sin(math.Pi*daylightProgress)
+}
+
+func (s *Simulator) loadPowerKW(at time.Time, dailyFactor float64) float64 {
+	hour := hourOfDay(at)
+	morningDemand := loadMorningPeakScale * dailyGaussian(hour, loadMorningPeakHour, loadMorningPeakWidthHours)
+	eveningDemand := loadEveningPeakScale * dailyGaussian(hour, loadEveningPeakHour, loadEveningPeakWidthHours)
+
+	return s.cfg.LoadBasePowerKW * dailyFactor * (1 + morningDemand + eveningDemand)
+}
+
+func (s *Simulator) randomFactor(minimum, maximum float64) float64 {
+	return minimum + (maximum-minimum)*s.rng.Float64()
+}
+
+func hourOfDay(at time.Time) float64 {
+	return float64(at.Hour()) + float64(at.Minute())/60 + float64(at.Second())/3600
+}
+
+// dailyGaussian models a gradual demand peak instead of an abrupt time-based
+// step. It returns 1 at peakHour and falls toward 0; widthHours controls how
+// broad the peak is. Distances wrap at midnight to keep the curve continuous.
+func dailyGaussian(hour, peakHour, widthHours float64) float64 {
+	distance := math.Abs(hour - peakHour)
+	distance = math.Min(distance, hoursPerDay-distance)
+	normalizedDistance := distance / widthHours
+	return math.Exp(-0.5 * normalizedDistance * normalizedDistance)
 }

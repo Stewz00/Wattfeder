@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/Stewz00/wattfeder/internal/household"
 )
 
 func TestNewRejectsInvalidConfig(t *testing.T) {
@@ -149,7 +151,7 @@ func TestSimulatorPVProfile(t *testing.T) {
 	}
 }
 
-func TestSimulatorPVProfileVariesBySeed(t *testing.T) {
+func TestSimulatorProfilesVaryBySeed(t *testing.T) {
 	firstConfig := validSimulatorConfig()
 	secondConfig := firstConfig
 	secondConfig.Seed++
@@ -165,13 +167,83 @@ func TestSimulatorPVProfileVariesBySeed(t *testing.T) {
 
 	firstDay := first.SimulateDay()
 	secondDay := second.SimulateDay()
-	for i := range firstDay {
-		if firstDay[i].PVPowerKW != secondDay[i].PVPowerKW {
-			return
+	if len(firstDay) != len(secondDay) {
+		t.Fatalf("profile lengths = %d and %d, want equal lengths", len(firstDay), len(secondDay))
+	}
+
+	profiles := []struct {
+		name  string
+		power func(household.Telemetry) float64
+	}{
+		{name: "PV", power: func(event household.Telemetry) float64 { return event.PVPowerKW }},
+		{name: "load", power: func(event household.Telemetry) float64 { return event.LoadPowerKW }},
+	}
+
+	for _, profile := range profiles {
+		t.Run(profile.name, func(t *testing.T) {
+			for i := range firstDay {
+				if profile.power(firstDay[i]) != profile.power(secondDay[i]) {
+					return
+				}
+			}
+
+			t.Errorf("%s profiles are identical for different seeds", profile.name)
+		})
+	}
+}
+
+func TestSimulatorLoadProfile(t *testing.T) {
+	cfg := validSimulatorConfig()
+	cfg.Start = time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC)
+
+	sim, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	events := sim.SimulateDay()
+	for i, event := range events {
+		if math.IsNaN(event.LoadPowerKW) || math.IsInf(event.LoadPowerKW, 0) || event.LoadPowerKW < 0 {
+			t.Errorf("event %d load power = %v, want a finite non-negative value", i, event.LoadPowerKW)
 		}
 	}
 
-	t.Error("PV profiles are identical for different seeds")
+	overnight := events[eventIndexAt(cfg, 2*time.Hour)].LoadPowerKW
+	morning := events[eventIndexAt(cfg, 7*time.Hour)].LoadPowerKW
+	midday := events[eventIndexAt(cfg, 12*time.Hour)].LoadPowerKW
+	evening := events[eventIndexAt(cfg, 19*time.Hour)].LoadPowerKW
+	if morning <= overnight || morning <= midday {
+		t.Errorf(
+			"load powers overnight, morning, and midday = %v, %v, %v; want a distinct morning peak",
+			overnight,
+			morning,
+			midday,
+		)
+	}
+	if evening <= morning || evening <= midday {
+		t.Errorf(
+			"load powers morning, midday, and evening = %v, %v, %v; want evening highest",
+			morning,
+			midday,
+			evening,
+		)
+	}
+}
+
+func TestSimulatorLoadProfileIsContinuousAtMidnight(t *testing.T) {
+	cfg := validSimulatorConfig()
+	sim, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	beforeMidnight := time.Date(2026, 8, 7, 23, 59, 0, 0, time.UTC)
+	afterMidnight := time.Date(2026, 8, 8, 0, 1, 0, 0, time.UTC)
+	difference := math.Abs(sim.loadPowerKW(beforeMidnight, 1) - sim.loadPowerKW(afterMidnight, 1))
+	maximumDifference := cfg.LoadBasePowerKW * 0.02
+	if difference > maximumDifference {
+		t.Errorf("load power changes by %v across midnight, want at most %v", difference, maximumDifference)
+	}
 }
 
 func eventIndexAt(cfg Config, sinceStart time.Duration) int {
@@ -187,5 +259,6 @@ func validSimulatorConfig() Config {
 		BatteryCapacityKWh:        10,
 		StartingBatterySOCPercent: 50,
 		PVPeakPowerKW:             6,
+		LoadBasePowerKW:           0.4,
 	}
 }
