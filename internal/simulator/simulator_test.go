@@ -173,16 +173,17 @@ func TestSimulatorProfilesVaryBySeed(t *testing.T) {
 
 	profiles := []struct {
 		name  string
-		power func(household.Telemetry) float64
+		value func(household.Telemetry) float64
 	}{
-		{name: "PV", power: func(event household.Telemetry) float64 { return event.PVPowerKW }},
-		{name: "load", power: func(event household.Telemetry) float64 { return event.LoadPowerKW }},
+		{name: "PV", value: func(event household.Telemetry) float64 { return event.PVPowerKW }},
+		{name: "load", value: func(event household.Telemetry) float64 { return event.LoadPowerKW }},
+		{name: "price", value: func(event household.Telemetry) float64 { return event.PriceEURPerKWh }},
 	}
 
 	for _, profile := range profiles {
 		t.Run(profile.name, func(t *testing.T) {
 			for i := range firstDay {
-				if profile.power(firstDay[i]) != profile.power(secondDay[i]) {
+				if profile.value(firstDay[i]) != profile.value(secondDay[i]) {
 					return
 				}
 			}
@@ -246,6 +247,38 @@ func TestSimulatorLoadProfileIsContinuousAtMidnight(t *testing.T) {
 	}
 }
 
+func TestSimulatorPriceProfile(t *testing.T) {
+	cfg := validSimulatorConfig()
+	cfg.Start = time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC)
+
+	sim, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	events := sim.SimulateDay()
+	for i, event := range events {
+		if math.IsNaN(event.PriceEURPerKWh) || math.IsInf(event.PriceEURPerKWh, 0) || event.PriceEURPerKWh <= 0 {
+			t.Errorf("event %d price = %v, want a finite positive value", i, event.PriceEURPerKWh)
+		}
+	}
+
+	morning := events[eventIndexAt(cfg, 7*time.Hour)].PriceEURPerKWh
+	midday := events[eventIndexAt(cfg, 13*time.Hour)].PriceEURPerKWh
+	evening := events[eventIndexAt(cfg, 19*time.Hour)].PriceEURPerKWh
+	if midday >= morning || midday >= evening {
+		t.Errorf(
+			"prices in the morning, at midday, and in the evening = %v, %v, %v; want midday lowest",
+			morning,
+			midday,
+			evening,
+		)
+	}
+	if evening <= morning {
+		t.Errorf("morning and evening prices = %v and %v; want evening highest", morning, evening)
+	}
+}
+
 func eventIndexAt(cfg Config, sinceStart time.Duration) int {
 	return int(sinceStart / cfg.Interval)
 }
@@ -260,5 +293,6 @@ func validSimulatorConfig() Config {
 		StartingBatterySOCPercent: 50,
 		PVPeakPowerKW:             6,
 		LoadBasePowerKW:           0.4,
+		PriceBaseEURPerKWh:        0.30,
 	}
 }

@@ -9,16 +9,19 @@ import (
 	"github.com/Stewz00/wattfeder/internal/household"
 )
 
-// These fixed parameters describe a simple synthetic daily profile
-// Peak widths are Gaussian standard deviations in hours; peak scales add multiples of base load.
+// These fixed parameters describe simple synthetic daily profiles. Peak widths
+// are Gaussian standard deviations in hours; scales are multipliers of each
+// profile's baseline.
 const (
-	hoursPerDay        = 24.0
-	pvSunriseHour      = 6.0
-	pvSunsetHour       = 18.0
-	pvDailyFactorMin   = 0.8
-	pvDailyFactorMax   = 1.0
-	loadDailyFactorMin = 0.85
-	loadDailyFactorMax = 1.15
+	hoursPerDay         = 24.0
+	pvSunriseHour       = 6.0
+	pvSunsetHour        = 18.0
+	pvDailyFactorMin    = 0.8
+	pvDailyFactorMax    = 1.0
+	loadDailyFactorMin  = 0.85
+	loadDailyFactorMax  = 1.15
+	priceDailyFactorMin = 0.9
+	priceDailyFactorMax = 1.1
 
 	loadMorningPeakHour       = 7.0
 	loadMorningPeakWidthHours = 1.5
@@ -26,6 +29,16 @@ const (
 	loadEveningPeakHour       = 19.0
 	loadEveningPeakWidthHours = 2.0
 	loadEveningPeakScale      = 2.5
+
+	priceMorningPeakHour       = 7.0
+	priceMorningPeakWidthHours = 1.5
+	priceMorningPeakScale      = 0.2
+	priceMiddayDipHour         = 13.0
+	priceMiddayDipWidthHours   = 2.5
+	priceMiddayDipScale        = 0.15
+	priceEveningPeakHour       = 19.0
+	priceEveningPeakWidthHours = 2.0
+	priceEveningPeakScale      = 0.65
 )
 
 // Simulator owns the timeline and random stream for one reproducible household run
@@ -62,6 +75,7 @@ func (s *Simulator) SimulateDay() []household.Telemetry {
 	// its overall level reproducibly between days
 	dailyPVFactor := s.randomFactor(pvDailyFactorMin, pvDailyFactorMax)
 	dailyLoadFactor := s.randomFactor(loadDailyFactorMin, loadDailyFactorMax)
+	dailyPriceFactor := s.randomFactor(priceDailyFactorMin, priceDailyFactorMax)
 
 	// Emit the exact half-open window [start, start+24h), one event per interval
 	for s.currentTime.Before(destinationTime) {
@@ -71,6 +85,7 @@ func (s *Simulator) SimulateDay() []household.Telemetry {
 			PVPowerKW:         s.pvPowerKW(s.currentTime, dailyPVFactor),
 			LoadPowerKW:       s.loadPowerKW(s.currentTime, dailyLoadFactor),
 			BatterySOCPercent: s.cfg.StartingBatterySOCPercent,
+			PriceEURPerKWh:    s.priceEURPerKWh(s.currentTime, dailyPriceFactor),
 		}
 		s.currentTime = s.currentTime.Add(s.cfg.Interval)
 		events = append(events, event)
@@ -99,6 +114,15 @@ func (s *Simulator) loadPowerKW(at time.Time, dailyFactor float64) float64 {
 	return s.cfg.LoadBasePowerKW * dailyFactor * (1 + morningDemand + eveningDemand)
 }
 
+func (s *Simulator) priceEURPerKWh(at time.Time, dailyFactor float64) float64 {
+	hour := hourOfDay(at)
+	morningPeak := priceMorningPeakScale * dailyGaussian(hour, priceMorningPeakHour, priceMorningPeakWidthHours)
+	middayDip := priceMiddayDipScale * dailyGaussian(hour, priceMiddayDipHour, priceMiddayDipWidthHours)
+	eveningPeak := priceEveningPeakScale * dailyGaussian(hour, priceEveningPeakHour, priceEveningPeakWidthHours)
+
+	return s.cfg.PriceBaseEURPerKWh * dailyFactor * (1 + morningPeak - middayDip + eveningPeak)
+}
+
 func (s *Simulator) randomFactor(minimum, maximum float64) float64 {
 	return minimum + (maximum-minimum)*s.rng.Float64()
 }
@@ -107,9 +131,9 @@ func hourOfDay(at time.Time) float64 {
 	return float64(at.Hour()) + float64(at.Minute())/60 + float64(at.Second())/3600
 }
 
-// dailyGaussian models a gradual demand peak instead of an abrupt time-based
+// dailyGaussian models a gradual peak or dip instead of an abrupt time-based
 // step. It returns 1 at peakHour and falls toward 0; widthHours controls how
-// broad the peak is. Distances wrap at midnight to keep the curve continuous.
+// broad the shape is. Distances wrap at midnight to keep the curve continuous.
 func dailyGaussian(hour, peakHour, widthHours float64) float64 {
 	distance := math.Abs(hour - peakHour)
 	distance = math.Min(distance, hoursPerDay-distance)

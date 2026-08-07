@@ -17,6 +17,7 @@ type Config struct {
 	StartingBatterySOCPercent float64
 	PVPeakPowerKW             float64
 	LoadBasePowerKW           float64
+	PriceBaseEURPerKWh        float64
 }
 
 const simulationDuration = 24 * time.Hour
@@ -50,6 +51,10 @@ func (c Config) Validate() error {
 
 	if !isFinite(c.LoadBasePowerKW) || c.LoadBasePowerKW <= 0 {
 		return errors.New("load base power must be finite and greater than 0")
+	}
+
+	if !isFinite(c.PriceBaseEURPerKWh) || c.PriceBaseEURPerKWh <= 0 {
+		return errors.New("base electricity price must be finite and greater than 0")
 	}
 
 	if strings.TrimSpace(c.DeviceID) == "" {
