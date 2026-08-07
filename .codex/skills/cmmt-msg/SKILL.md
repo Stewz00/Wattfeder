@@ -1,13 +1,17 @@
 ---
 name: cmmt-msg
 description: >-
-  Manually invoked Git commit workflow. Use only when the user explicitly writes
-  `$cmmt-msg`; never auto-trigger for ordinary coding, review, or commit
-  requests. Inspect current repository changes, split them into coherent local
-  commits when justified, use a conventional type-and-scope subject, never add
-  AI attribution, and never push or rewrite history.
+  Manually authorized Git commit workflow. Use when the user explicitly writes
+  `$cmmt-msg` or when an explicitly invoked `$update-roadmap` workflow hands off
+  to it; never auto-trigger otherwise. Inspect current repository changes, split
+  them into coherent local commits when justified, use a conventional
+  type-and-scope subject, never add AI attribution, and never push or rewrite
+  history.
 ---
 # Commit Changes
+
+Direct `$cmmt-msg` invocation and the documented `$update-roadmap` handoff both
+authorize this local-only workflow.
 
 1. Confirm the current directory is a Git repository. Stop on merge conflicts or an empty working tree.
 2. Inspect `git status --short`, `git diff`, `git diff --cached`, and relevant untracked files.
