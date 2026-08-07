@@ -1,7 +1,7 @@
-# LLM Checklist Roadmap
+# Internal Implementation Checklist
 
-This file tracks verified implementation state. The product scope remains in
-[`roadmap.md`](roadmap.md).
+This file tracks verified implementation state for development workflows. The
+reader-facing progress and product scope remain in [`roadmap.md`](roadmap.md).
 
 ## Update rule
 
@@ -26,8 +26,8 @@ visible instead of treating them as complete.
 
 - [x] Make the seed affect generated telemetry through reproducible variation.
 - [x] Generate a plausible photovoltaic production profile.
-- [ ] Generate a plausible household consumption profile.
-- [ ] Generate a simulated electricity price profile.
+- [x] Generate a plausible household consumption profile.
+- [x] Generate a simulated electricity price profile.
 - [ ] Evolve battery SOC from interval energy flows and control commands.
 - [ ] Enforce physical bounds and units across generated values.
 
@@ -49,18 +49,18 @@ visible instead of treating them as complete.
 
 - [x] Cover simulator configuration with table-driven tests.
 - [x] Cover daily timeline boundaries and repeatability.
-- [ ] Cover profile invariants and seeded variation.
+- [x] Cover profile invariants and seeded variation.
 - [ ] Cover telemetry validation boundaries.
 - [ ] Cover control-policy boundaries with table-driven tests.
 - [ ] Document setup, execution, assumptions, and example output in the README.
 
 ### Current behavior and gaps
 
-The simulator currently emits timestamp, device ID, the configured initial
-battery SOC, and a seeded photovoltaic profile. PV generation follows a smooth
-daylight curve with a reproducible daily weather factor and remains within its
-configured peak power. Load power and electricity price remain zero, and
-battery SOC does not evolve yet.
+The simulator emits timestamp, device ID, the configured initial battery SOC,
+and seeded photovoltaic, household load, and electricity price profiles. PV
+follows a daylight curve, load has morning and evening peaks, and price has a
+midday dip and evening peak. All three profiles vary reproducibly by seed.
+Battery SOC does not evolve yet, and the application pipeline is not connected.
 
 ### Decisions to preserve
 
@@ -73,11 +73,18 @@ battery SOC does not evolve yet.
 - Calling `SimulateDay` advances the same simulator to the next day.
 - Photovoltaic generation is zero outside 06:00–18:00 UTC and follows a sine
   curve during daylight, scaled to 80–100% of configured peak power by the seed.
+- Household load remains positive and follows smooth morning and evening peaks,
+  with the evening peak higher.
+- Electricity price remains positive and follows a smooth midday dip, morning
+  peak, and higher evening peak.
+- One seeded factor scales each profile for the whole simulated day, preserving
+  its daily shape.
 
 ### Next task
 
-Implement a seeded household consumption profile with explicit non-negative
-power and daily shape invariants, then test repeatability and seed variation.
+Evolve battery SOC from interval energy flows. Define the power-flow sign
+convention, convert kW over the interval to kWh, and enforce capacity and SOC
+bounds with tests.
 
 ## Later milestones
 

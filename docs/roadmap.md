@@ -6,6 +6,18 @@ The roadmap is intentionally incremental. Each milestone should produce a workin
 
 The current milestone should remain the main focus. Later milestones describe possible directions rather than fixed commitments.
 
+## Progress
+
+| Milestone | Status |
+| --- | --- |
+| v0.1 — Single Household Simulation | In progress |
+| v0.2–v0.7 | Planned |
+
+The deterministic simulator timeline and its photovoltaic, household load, and
+electricity price profiles are complete. Battery state evolution is next.
+Telemetry processing, control decisions, application output, and graceful
+shutdown still remain for v0.1.
+
 ---
 
 ## v0.1 — Single Household Simulation
