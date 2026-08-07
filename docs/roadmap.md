@@ -10,12 +10,15 @@ The current milestone should remain the main focus. Later milestones describe po
 
 | Milestone | Status |
 | --- | --- |
-| v0.1 — Single Household Simulation | In progress |
-| v0.2–v0.7 | Planned |
+| v0.1 — Single Household Simulation | Complete |
+| v0.2 — Persistent Device State | Next |
+| v0.3–v0.7 | Planned |
 
-The deterministic simulator, battery state evolution, telemetry validation,
-latest in-memory state, and control policy for one household device are
-complete. Application output and graceful shutdown still remain for v0.1.
+The v0.1 application now runs one deterministic household simulation from the
+CLI, validates and applies telemetry, produces battery commands, applies those
+commands to later battery state, emits structured JSON records, and shuts down
+gracefully. The next milestone adds persistent device state and decision
+history.
 
 ---
 
@@ -61,16 +64,18 @@ Structured output
 
 ### Example output
 
-```text
-time=2026-08-03T14:00:00Z
-device=home-001
-pv_power_kw=4.8
-load_power_kw=1.9
-battery_soc=61
-electricity_price_eur_kwh=0.28
-decision=charge
-power_kw=2.9
-reason="PV production exceeds household load"
+```json
+{
+  "timestamp": "2026-08-07T00:00:00Z",
+  "device_id": "home-001",
+  "pv_power_kw": 0,
+  "load_power_kw": 0.3861461516439471,
+  "battery_soc_percent": 50,
+  "electricity_price_eur_kwh": 0.31498997331311535,
+  "decision": "discharge",
+  "command_power_kw": 0.3861461516439471,
+  "reason": "Electricity price is at or above EUR 0.30/kWh and household load exceeds PV production"
+}
 ```
 
 ### Exit criteria

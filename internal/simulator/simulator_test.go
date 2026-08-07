@@ -44,7 +44,7 @@ func TestSimulatorSimulateDay(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	events := sim.SimulateDay()
+	events := simulateDay(t, sim)
 	wantCount := int((24 * time.Hour) / cfg.Interval)
 	if len(events) != wantCount {
 		t.Fatalf("SimulateDay() returned %d events, want %d", len(events), wantCount)
@@ -105,8 +105,8 @@ func TestSimulatorSimulateDayAdvancesToNextDay(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	firstDay := sim.SimulateDay()
-	secondDay := sim.SimulateDay()
+	firstDay := simulateDay(t, sim)
+	secondDay := simulateDay(t, sim)
 	if len(secondDay) == 0 {
 		t.Fatal("second SimulateDay() returned no events")
 	}
@@ -207,6 +207,114 @@ func TestNextBatterySOCPercent(t *testing.T) {
 	}
 }
 
+func TestSimulatorAppliesControlCommandsToBatteryState(t *testing.T) {
+	tests := []struct {
+		name           string
+		command        household.Command
+		wantSOCPercent float64
+	}{
+		{
+			name: "charge",
+			command: household.Command{
+				Decision: household.DecisionCharge,
+				PowerKW:  2,
+				Reason:   "Store surplus power",
+			},
+			wantSOCPercent: 70,
+		},
+		{
+			name: "discharge",
+			command: household.Command{
+				Decision: household.DecisionDischarge,
+				PowerKW:  2,
+				Reason:   "Serve household demand",
+			},
+			wantSOCPercent: 30,
+		},
+		{
+			name: "idle",
+			command: household.Command{
+				Decision: household.DecisionIdle,
+				Reason:   "Use grid power",
+			},
+			wantSOCPercent: 50,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validSimulatorConfig()
+			cfg.Interval = time.Hour
+			sim, err := New(cfg)
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+
+			first, err := sim.NextTelemetry()
+			if err != nil {
+				t.Fatalf("first NextTelemetry() error = %v", err)
+			}
+			if err := sim.ApplyCommand(tt.command); err != nil {
+				t.Fatalf("ApplyCommand() error = %v", err)
+			}
+
+			second, err := sim.NextTelemetry()
+			if err != nil {
+				t.Fatalf("second NextTelemetry() error = %v", err)
+			}
+			if math.Abs(second.BatterySOCPercent-tt.wantSOCPercent) > 1e-12 {
+				t.Errorf("SOC after %s command = %v, want %v", tt.name, second.BatterySOCPercent, tt.wantSOCPercent)
+			}
+			if !second.Timestamp.Equal(first.Timestamp.Add(cfg.Interval)) {
+				t.Errorf("timestamp after command = %v, want %v", second.Timestamp, first.Timestamp.Add(cfg.Interval))
+			}
+		})
+	}
+}
+
+func TestSimulatorRequiresOneValidCommandPerTelemetryEvent(t *testing.T) {
+	sim, err := New(validSimulatorConfig())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	validCommand := household.Command{
+		Decision: household.DecisionIdle,
+		Reason:   "Use grid power",
+	}
+	if err := sim.ApplyCommand(validCommand); err == nil {
+		t.Error("ApplyCommand() before telemetry error = nil, want an error")
+	}
+
+	if _, err := sim.NextTelemetry(); err != nil {
+		t.Fatalf("first NextTelemetry() error = %v", err)
+	}
+	if _, err := sim.NextTelemetry(); err == nil {
+		t.Error("second NextTelemetry() error = nil, want pending-command error")
+	}
+
+	invalidCommand := household.Command{Decision: household.DecisionIdle}
+	if err := sim.ApplyCommand(invalidCommand); err == nil {
+		t.Error("ApplyCommand(invalid) error = nil, want validation error")
+	}
+	if _, err := sim.NextTelemetry(); err == nil {
+		t.Error("NextTelemetry() after invalid command error = nil, want pending-command error")
+	}
+	if _, err := sim.SimulateDay(); err == nil {
+		t.Error("SimulateDay() with pending telemetry error = nil, want pending-command error")
+	}
+
+	if err := sim.ApplyCommand(validCommand); err != nil {
+		t.Fatalf("ApplyCommand(valid) error = %v", err)
+	}
+	if err := sim.ApplyCommand(validCommand); err == nil {
+		t.Error("second ApplyCommand() error = nil, want missing-telemetry error")
+	}
+	if _, err := sim.NextTelemetry(); err != nil {
+		t.Errorf("NextTelemetry() after valid command error = %v", err)
+	}
+}
+
 func TestSimulatorIsDeterministicForSameConfig(t *testing.T) {
 	cfg := validSimulatorConfig()
 	first, err := New(cfg)
@@ -218,8 +326,8 @@ func TestSimulatorIsDeterministicForSameConfig(t *testing.T) {
 		t.Fatalf("New(second) error = %v", err)
 	}
 
-	firstDay := first.SimulateDay()
-	secondDay := second.SimulateDay()
+	firstDay := simulateDay(t, first)
+	secondDay := simulateDay(t, second)
 	if !reflect.DeepEqual(firstDay, secondDay) {
 		t.Error("SimulateDay() results differ for identical configurations")
 	}
@@ -234,15 +342,19 @@ func TestSimulatorPVProfile(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	events := sim.SimulateDay()
+	events := simulateDay(t, sim)
 	for i, event := range events {
 		hour := float64(event.Timestamp.Hour()) + float64(event.Timestamp.Minute())/60
 		isDaylight := hour > 6 && hour < 18
+		hasValidDaylightPower := !math.IsNaN(event.PVPowerKW) &&
+			!math.IsInf(event.PVPowerKW, 0) &&
+			event.PVPowerKW > 0 &&
+			event.PVPowerKW <= cfg.PVPeakPowerKW
 
 		if !isDaylight && event.PVPowerKW != 0 {
 			t.Errorf("event %d PV power outside daylight = %v, want 0", i, event.PVPowerKW)
 		}
-		if isDaylight && (math.IsNaN(event.PVPowerKW) || math.IsInf(event.PVPowerKW, 0) || event.PVPowerKW <= 0 || event.PVPowerKW > cfg.PVPeakPowerKW) {
+		if isDaylight && !hasValidDaylightPower {
 			t.Errorf(
 				"event %d PV power during daylight = %v, want within (0, %v]",
 				i,
@@ -274,8 +386,8 @@ func TestSimulatorProfilesVaryBySeed(t *testing.T) {
 		t.Fatalf("New(second) error = %v", err)
 	}
 
-	firstDay := first.SimulateDay()
-	secondDay := second.SimulateDay()
+	firstDay := simulateDay(t, first)
+	secondDay := simulateDay(t, second)
 	if len(firstDay) != len(secondDay) {
 		t.Fatalf("profile lengths = %d and %d, want equal lengths", len(firstDay), len(secondDay))
 	}
@@ -311,7 +423,7 @@ func TestSimulatorLoadProfile(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	events := sim.SimulateDay()
+	events := simulateDay(t, sim)
 	for i, event := range events {
 		if math.IsNaN(event.LoadPowerKW) || math.IsInf(event.LoadPowerKW, 0) || event.LoadPowerKW < 0 {
 			t.Errorf("event %d load power = %v, want a finite non-negative value", i, event.LoadPowerKW)
@@ -365,7 +477,7 @@ func TestSimulatorPriceProfile(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	events := sim.SimulateDay()
+	events := simulateDay(t, sim)
 	for i, event := range events {
 		if math.IsNaN(event.PriceEURPerKWh) || math.IsInf(event.PriceEURPerKWh, 0) || event.PriceEURPerKWh <= 0 {
 			t.Errorf("event %d price = %v, want a finite positive value", i, event.PriceEURPerKWh)
@@ -390,6 +502,17 @@ func TestSimulatorPriceProfile(t *testing.T) {
 
 func eventIndexAt(cfg Config, sinceStart time.Duration) int {
 	return int(sinceStart / cfg.Interval)
+}
+
+func simulateDay(t *testing.T, sim *Simulator) []household.Telemetry {
+	t.Helper()
+
+	events, err := sim.SimulateDay()
+	if err != nil {
+		t.Fatalf("SimulateDay() error = %v", err)
+	}
+
+	return events
 }
 
 func validSimulatorConfig() Config {

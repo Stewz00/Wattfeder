@@ -25,8 +25,8 @@ energy_kwh = power_kw × interval_hours
 For example, a steady 4 kW flow over a 15-minute (0.25-hour) interval transfers
 1 kWh. When interval energy is calculated, the sampled power is treated as
 constant until the next event. An event reports the battery state at its
-timestamp; the event's power flow changes the state reported by the following
-event.
+timestamp; the command applied for that interval changes the state reported by
+the following event.
 
 PV and load are both non-negative measurements. Their difference describes the
 household balance before battery action:
@@ -41,18 +41,23 @@ battery-relative power: positive power charges the battery and negative power
 discharges it. This sign convention avoids encoding import or export as
 negative PV or load values.
 
-Battery energy evolves once per interval:
+Battery energy evolves once per interval from the applied command:
 
 ```text
-battery_energy_kwh += surplus_power_kw × interval_hours
+battery_energy_kwh += signed_command_power_kw × interval_hours
 battery_soc_percent = 100 × battery_energy_kwh / battery_capacity_kwh
 ```
 
-Stored energy is clamped to zero and the configured capacity. When generation
-would overfill the battery, the remaining surplus is implicitly exported to the
-grid. When demand would empty it, the remaining deficit is implicitly imported.
-The model currently assumes perfect charge and discharge efficiency and no
-battery power limit.
+Charge power is positive, discharge power is negative, and idle power is zero.
+The runnable application obtains that command from the control policy. The
+standalone `SimulateDay` helper uses the household's PV-minus-load balance as an
+uncontrolled command so it retains the original passive simulation behavior.
+
+Stored energy is clamped to zero and the configured capacity. The grid
+implicitly handles any household balance that the command does not assign to
+the battery. This includes surplus or demand left by an idle command and energy
+that would overfill or empty the battery. The model assumes perfect charge and
+discharge efficiency and no battery power limit.
 
 ## Daily profiles
 
@@ -86,7 +91,8 @@ Deliberate simplifications:
 - Price models a positive time-of-use retail tariff, not volatile wholesale
   prices, taxes, or negative prices.
 - Profiles are independent; the price does not react to this household's load.
-- Battery losses, power limits, and control commands are not implemented yet.
+- Battery losses and battery power limits are not modeled. Commands apply their
+  full requested interval power until stored energy reaches a physical bound.
 
 These constraints keep v0.1 reproducible and make later reliability and control
 behavior testable without pretending the synthetic data is physically complete.

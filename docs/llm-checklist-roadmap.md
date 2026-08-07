@@ -9,7 +9,7 @@ Update this file only when the user invokes `$update-roadmap`. Check an item onl
 after the implementation is verified. Keep partial behavior and known gaps
 visible instead of treating them as complete.
 
-## Current milestone: v0.1 — Single Household Simulation
+## Completed milestone: v0.1 — Single Household Simulation
 
 ### Completed foundation
 
@@ -29,7 +29,7 @@ visible instead of treating them as complete.
 - [x] Generate a plausible household consumption profile.
 - [x] Generate a simulated electricity price profile.
 - [x] Evolve battery SOC from interval energy flows.
-- [ ] Apply control commands to battery SOC evolution.
+- [x] Apply control commands to battery SOC evolution.
 - [x] Enforce physical bounds and units across generated values.
 
 ### Processing and control
@@ -38,13 +38,13 @@ visible instead of treating them as complete.
 - [x] Apply telemetry to household state.
 - [x] Implement charge, discharge, and idle control decisions.
 - [x] Include a human-readable reason with every decision.
-- [ ] Connect simulator, state update, policy, command, and output in one data flow.
+- [x] Connect simulator, state update, policy, command, and output in one data flow.
 
 ### Application behavior
 
-- [ ] Run the simulation from `go run ./cmd/wattfeder`.
-- [ ] Emit structured, human-readable telemetry and decisions.
-- [ ] Handle graceful shutdown.
+- [x] Run the simulation from `go run ./cmd/wattfeder`.
+- [x] Emit structured, human-readable telemetry and decisions.
+- [x] Handle graceful shutdown.
 
 ### Tests and documentation
 
@@ -53,22 +53,33 @@ visible instead of treating them as complete.
 - [x] Cover profile invariants and seeded variation.
 - [x] Cover telemetry validation boundaries.
 - [x] Cover control-policy boundaries with table-driven tests.
-- [ ] Document setup, execution, assumptions, and example output in the README.
+- [x] Cover command validation, simulator command sequencing, application flow,
+  cancellation, and CLI output.
+- [x] Document setup, execution, assumptions, and example output in the README.
 
 ### Current behavior and gaps
 
 The simulator emits timestamp, device ID, battery SOC, and seeded photovoltaic,
-household load, and electricity price profiles. Battery SOC starts at the
-configured value, then evolves from the interval's PV-minus-load energy while
-remaining between empty and full. Battery state carries across repeated daily
-simulation calls. Valid telemetry initializes and replaces the latest in-memory
-state for one device. Invalid telemetry and events from a different device are
-rejected without changing that state. The deterministic policy charges from a
-PV surplus while the battery is below full, and discharges a load deficit only
-when the electricity price is at least EUR 0.30/kWh and battery SOC is above
-the 20% reserve. Other conditions produce an idle command. Every command has a
-human-readable reason and a non-negative power magnitude. Control commands do
-not affect SOC yet, and the application pipeline is not connected.
+household load, and electricity price profiles. It yields one telemetry event
+at a time and requires one valid command before advancing the clock and battery
+state. Invalid commands leave the event pending so callers can recover. The
+standalone daily simulation follows uncontrolled PV-minus-load power, while the
+application applies policy commands to the next interval's SOC. Battery energy
+remains between empty and full and carries across repeated daily simulations.
+
+Valid telemetry initializes and replaces the latest in-memory state for one
+device. Invalid telemetry and events from another device are rejected without
+changing that state. The deterministic policy charges from a PV surplus while
+the battery is below full, and discharges a load deficit only when electricity
+costs at least EUR 0.30/kWh and battery SOC is above the 20% reserve. Other
+conditions produce an idle command. Every command has a human-readable reason
+and a finite, non-negative power magnitude.
+
+The CLI connects simulator, state update, policy, command application, and
+newline-delimited JSON output for one configurable 24-hour simulation. It
+rejects invalid arguments and configuration, provides flag help, and treats
+SIGINT or SIGTERM cancellation as a graceful shutdown. State and output remain
+process-local; persistence begins in v0.2.
 
 ### Decisions to preserve
 
@@ -79,10 +90,11 @@ not affect SOC yet, and the application pipeline is not connected.
 - A simulator owns its clock and random stream; separate instances cannot alter
   each other's random sequence.
 - Calling `SimulateDay` advances the same simulator to the next day.
-- Each telemetry event reports battery SOC at its timestamp; that event's power
-  flow determines the SOC reported at the next timestamp.
+- Each telemetry event reports battery SOC at its timestamp; its applied
+  command determines the SOC reported at the next timestamp.
 - Battery-relative power is positive when charging and negative when
-  discharging. The simulator derives it as PV power minus load power.
+  discharging. `SimulateDay` derives its passive command from PV power minus
+  load power; the application uses the deterministic policy command.
 - Interval energy in kWh equals power in kW multiplied by interval hours.
 - Battery energy is clamped between zero and configured capacity; excess
   generation or unmet demand is implicitly exchanged with the grid.
@@ -112,13 +124,22 @@ not affect SOC yet, and the application pipeline is not connected.
   price below the discharge threshold produce idle commands with zero power.
 - Command power is a non-negative magnitude; the decision carries its charge,
   discharge, or idle meaning.
+- Charge and discharge commands require positive finite power. Idle commands
+  require zero power, and every command requires a non-blank reason.
+- The simulator advances its clock and battery state only after receiving one
+  valid command for the pending telemetry event.
 - Every control decision includes a human-readable reason derived from the
   applicable policy threshold.
+- The runnable application emits one newline-delimited JSON record per interval
+  for exactly one simulated day.
+- SIGINT and SIGTERM cancel the application without reporting an execution
+  failure.
 
 ### Next task
 
-Connect the simulator, state update, policy, command, and structured output in
-the runnable application data flow.
+Begin v0.2 by defining persistent event identity, stored telemetry and command
+records, migration ownership, and the atomic processing boundary before adding
+SQLite-backed state.
 
 ## Later milestones
 

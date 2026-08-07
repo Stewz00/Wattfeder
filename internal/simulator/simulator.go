@@ -1,6 +1,7 @@
 package simulator
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"math/rand"
@@ -49,6 +50,11 @@ type Simulator struct {
 	currentTime       time.Time
 	batterySOCPercent float64
 	rng               *rand.Rand
+	dayEnd            time.Time
+	dailyPVFactor     float64
+	dailyLoadFactor   float64
+	dailyPriceFactor  float64
+	pendingTelemetry  bool
 }
 
 func New(cfg Config) (*Simulator, error) {
@@ -61,55 +67,127 @@ func New(cfg Config) (*Simulator, error) {
 
 	rng := rand.New(rand.NewSource(cfg.Seed))
 
-	return &Simulator{
+	simulator := &Simulator{
 		cfg:               cfg,
 		currentTime:       cfg.Start,
 		batterySOCPercent: cfg.StartingBatterySOCPercent,
 		rng:               rng,
-	}, nil
+	}
+	simulator.startDay()
+
+	return simulator, nil
 }
 
-func (s *Simulator) SimulateDay() []household.Telemetry {
-	// Config validation guarantees that Interval divides 24 hours exactly
-	eventCount := int(simulationDuration / s.cfg.Interval)
+// SimulateDay emits one day of telemetry and evolves battery state from uncontrolled net power.
+// It returns an error if another telemetry event is awaiting a command.
+func (s *Simulator) SimulateDay() ([]household.Telemetry, error) {
+	eventCount := s.IntervalsPerDay()
 	events := make([]household.Telemetry, 0, eventCount)
 
-	destinationTime := s.currentTime.Add(simulationDuration)
-	// Keep each profile's shape stable within the simulated day while varying its overall level reproducibly between days
-	dailyPVFactor := s.randomFactor(pvDailyFactorMin, pvDailyFactorMax)
-	dailyLoadFactor := s.randomFactor(loadDailyFactorMin, loadDailyFactorMax)
-	dailyPriceFactor := s.randomFactor(priceDailyFactorMin, priceDailyFactorMax)
-
-	// Emit the exact half-open window [start, start+24h), one event per interval
-	for s.currentTime.Before(destinationTime) {
-		pvPowerKW := s.pvPowerKW(s.currentTime, dailyPVFactor)
-		loadPowerKW := s.loadPowerKW(s.currentTime, dailyLoadFactor)
-		event := household.Telemetry{
-			Timestamp:         s.currentTime,
-			DeviceID:          s.cfg.DeviceID,
-			PVPowerKW:         pvPowerKW,
-			LoadPowerKW:       loadPowerKW,
-			BatterySOCPercent: s.batterySOCPercent,
-			PriceEURPerKWh:    s.priceEURPerKWh(s.currentTime, dailyPriceFactor),
+	for range eventCount {
+		event, err := s.NextTelemetry()
+		if err != nil {
+			return nil, fmt.Errorf("get telemetry: %w", err)
 		}
 
-		// Positive battery power charges the battery; negative power discharges it
-		// Any energy beyond the battery's bounds is implicitly exchanged with the grid
-		batteryPowerKW := pvPowerKW - loadPowerKW
-		s.batterySOCPercent = nextBatterySOCPercent(
-			s.batterySOCPercent,
-			batteryPowerKW,
-			s.cfg.Interval,
-			s.cfg.BatteryCapacityKWh,
-		)
-		s.currentTime = s.currentTime.Add(s.cfg.Interval)
+		if err := s.ApplyCommand(passiveCommand(event)); err != nil {
+			return nil, fmt.Errorf("apply passive command: %w", err)
+		}
 		events = append(events, event)
 	}
 
-	return events
+	return events, nil
 }
 
-func nextBatterySOCPercent(currentSOCPercent, batteryPowerKW float64, interval time.Duration, capacityKWh float64) float64 {
+// IntervalsPerDay returns the number of telemetry events in one simulated day.
+func (s *Simulator) IntervalsPerDay() int {
+	return int(simulationDuration / s.cfg.Interval)
+}
+
+// NextTelemetry reports the current battery state and awaits one control command.
+func (s *Simulator) NextTelemetry() (household.Telemetry, error) {
+	if s.pendingTelemetry {
+		return household.Telemetry{}, fmt.Errorf(
+			"control command is required for telemetry at %s",
+			s.currentTime.Format(time.RFC3339),
+		)
+	}
+
+	if !s.currentTime.Before(s.dayEnd) {
+		s.startDay()
+	}
+
+	event := household.Telemetry{
+		Timestamp:         s.currentTime,
+		DeviceID:          s.cfg.DeviceID,
+		PVPowerKW:         s.pvPowerKW(s.currentTime, s.dailyPVFactor),
+		LoadPowerKW:       s.loadPowerKW(s.currentTime, s.dailyLoadFactor),
+		BatterySOCPercent: s.batterySOCPercent,
+		PriceEURPerKWh:    s.priceEURPerKWh(s.currentTime, s.dailyPriceFactor),
+	}
+	s.pendingTelemetry = true
+
+	return event, nil
+}
+
+// ApplyCommand evolves the battery over the pending telemetry interval.
+func (s *Simulator) ApplyCommand(command household.Command) error {
+	if !s.pendingTelemetry {
+		return errors.New("telemetry is required before applying a control command")
+	}
+
+	if err := command.Validate(); err != nil {
+		return fmt.Errorf("invalid control command: %w", err)
+	}
+
+	batteryPowerKW := commandBatteryPowerKW(command)
+	s.batterySOCPercent = nextBatterySOCPercent(
+		s.batterySOCPercent,
+		batteryPowerKW,
+		s.cfg.Interval,
+		s.cfg.BatteryCapacityKWh,
+	)
+	s.currentTime = s.currentTime.Add(s.cfg.Interval)
+	s.pendingTelemetry = false
+
+	return nil
+}
+
+func (s *Simulator) startDay() {
+	s.dayEnd = s.currentTime.Add(simulationDuration)
+	s.dailyPVFactor = s.randomFactor(pvDailyFactorMin, pvDailyFactorMax)
+	s.dailyLoadFactor = s.randomFactor(loadDailyFactorMin, loadDailyFactorMax)
+	s.dailyPriceFactor = s.randomFactor(priceDailyFactorMin, priceDailyFactorMax)
+}
+
+func passiveCommand(event household.Telemetry) household.Command {
+	const reason = "Follow uncontrolled net power"
+
+	powerKW := event.PVPowerKW - event.LoadPowerKW
+	if powerKW > 0 {
+		return household.Command{Decision: household.DecisionCharge, PowerKW: powerKW, Reason: reason}
+	}
+	if powerKW < 0 {
+		return household.Command{Decision: household.DecisionDischarge, PowerKW: -powerKW, Reason: reason}
+	}
+
+	return household.Command{Decision: household.DecisionIdle, Reason: reason}
+}
+
+func commandBatteryPowerKW(command household.Command) float64 {
+	if command.Decision == household.DecisionDischarge {
+		return -command.PowerKW
+	}
+
+	return command.PowerKW
+}
+
+func nextBatterySOCPercent(
+	currentSOCPercent float64,
+	batteryPowerKW float64,
+	interval time.Duration,
+	capacityKWh float64,
+) float64 {
 	currentEnergyKWh := currentSOCPercent / maximumBatterySOCPercent * capacityKWh
 	intervalEnergyKWh := batteryPowerKW * interval.Hours()
 	nextEnergyKWh := currentEnergyKWh + intervalEnergyKWh
