@@ -25,8 +25,10 @@ description: >-
    aspirational work complete.
 6. Update only completed items, current behavior and gaps, preserved decisions,
    and the next task. Keep `docs/roadmap.md` authoritative.
-7. Review the roadmap diff for accuracy and report what changed.
-8. Read and execute `../cmmt-msg/SKILL.md` after the roadmap update or bypass.
+7. After updating the checklist, reconcile `README.md` with verified current
+   behavior and update it when it is no longer current.
+8. Review the roadmap diff for accuracy and report what changed.
+9. Read and execute `../cmmt-msg/SKILL.md` after the roadmap update or bypass.
 
 Never change implementation to match the checklist. Invoking `$update-roadmap`
 explicitly authorizes local commits through its chained workflow, but never a
