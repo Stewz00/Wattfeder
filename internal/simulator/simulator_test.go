@@ -1,6 +1,7 @@
 package simulator
 
 import (
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -113,6 +114,70 @@ func TestSimulatorIsDeterministicForSameConfig(t *testing.T) {
 	}
 }
 
+func TestSimulatorPVProfile(t *testing.T) {
+	cfg := validSimulatorConfig()
+	cfg.Start = time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC)
+
+	sim, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	events := sim.SimulateDay()
+	for i, event := range events {
+		hour := float64(event.Timestamp.Hour()) + float64(event.Timestamp.Minute())/60
+		isDaylight := hour > 6 && hour < 18
+
+		if !isDaylight && event.PVPowerKW != 0 {
+			t.Errorf("event %d PV power outside daylight = %v, want 0", i, event.PVPowerKW)
+		}
+		if isDaylight && (math.IsNaN(event.PVPowerKW) || math.IsInf(event.PVPowerKW, 0) || event.PVPowerKW <= 0 || event.PVPowerKW > cfg.PVPeakPowerKW) {
+			t.Errorf(
+				"event %d PV power during daylight = %v, want within (0, %v]",
+				i,
+				event.PVPowerKW,
+				cfg.PVPeakPowerKW,
+			)
+		}
+	}
+
+	morning := events[eventIndexAt(cfg, 8*time.Hour)].PVPowerKW
+	noon := events[eventIndexAt(cfg, 12*time.Hour)].PVPowerKW
+	afternoon := events[eventIndexAt(cfg, 16*time.Hour)].PVPowerKW
+	if noon <= morning || noon <= afternoon {
+		t.Errorf("PV profile powers at 08:00, 12:00, and 16:00 = %v, %v, %v; want midday highest", morning, noon, afternoon)
+	}
+}
+
+func TestSimulatorPVProfileVariesBySeed(t *testing.T) {
+	firstConfig := validSimulatorConfig()
+	secondConfig := firstConfig
+	secondConfig.Seed++
+
+	first, err := New(firstConfig)
+	if err != nil {
+		t.Fatalf("New(first) error = %v", err)
+	}
+	second, err := New(secondConfig)
+	if err != nil {
+		t.Fatalf("New(second) error = %v", err)
+	}
+
+	firstDay := first.SimulateDay()
+	secondDay := second.SimulateDay()
+	for i := range firstDay {
+		if firstDay[i].PVPowerKW != secondDay[i].PVPowerKW {
+			return
+		}
+	}
+
+	t.Error("PV profiles are identical for different seeds")
+}
+
+func eventIndexAt(cfg Config, sinceStart time.Duration) int {
+	return int(sinceStart / cfg.Interval)
+}
+
 func validSimulatorConfig() Config {
 	return Config{
 		Seed:                      42,
@@ -121,5 +186,6 @@ func validSimulatorConfig() Config {
 		DeviceID:                  "home-001",
 		BatteryCapacityKWh:        10,
 		StartingBatterySOCPercent: 50,
+		PVPeakPowerKW:             6,
 	}
 }

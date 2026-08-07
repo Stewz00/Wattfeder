@@ -15,7 +15,7 @@ type Config struct {
 	DeviceID                  string
 	BatteryCapacityKWh        float64
 	StartingBatterySOCPercent float64
-	// TODO: PV generation later
+	PVPeakPowerKW             float64
 	// TODO: load profile later
 }
 
@@ -42,6 +42,10 @@ func (c Config) Validate() error {
 
 	if math.IsNaN(c.StartingBatterySOCPercent) || math.IsInf(c.StartingBatterySOCPercent, 0) || c.StartingBatterySOCPercent < 0 || c.StartingBatterySOCPercent > 100 {
 		return errors.New("starting battery SOC must be finite and between 0 and 100")
+	}
+
+	if math.IsNaN(c.PVPeakPowerKW) || math.IsInf(c.PVPeakPowerKW, 0) || c.PVPeakPowerKW <= 0 {
+		return errors.New("PV peak power must be finite and greater than 0")
 	}
 
 	if strings.TrimSpace(c.DeviceID) == "" {

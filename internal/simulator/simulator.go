@@ -2,6 +2,7 @@ package simulator
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"time"
 
@@ -37,6 +38,7 @@ func (s *Simulator) SimulateDay() []household.Telemetry {
 	tel := make([]household.Telemetry, 0, eventCount)
 
 	destinationTime := s.currentTime.Add(24 * time.Hour)
+	dailyPVFactor := 0.8 + 0.2*s.rng.Float64()
 
 	// Include this run's start; leave its end boundary for the next run
 	// -> [interval)
@@ -44,6 +46,7 @@ func (s *Simulator) SimulateDay() []household.Telemetry {
 		event := household.Telemetry{
 			Timestamp:         s.currentTime,
 			DeviceID:          s.cfg.DeviceID,
+			PVPowerKW:         s.pvPowerKW(s.currentTime, dailyPVFactor),
 			BatterySOCPercent: s.cfg.StartingBatterySOCPercent,
 		}
 		s.currentTime = s.currentTime.Add(s.cfg.Interval)
@@ -51,4 +54,19 @@ func (s *Simulator) SimulateDay() []household.Telemetry {
 	}
 
 	return tel
+}
+
+const (
+	pvSunriseHour = 6.0
+	pvSunsetHour  = 18.0
+)
+
+func (s *Simulator) pvPowerKW(at time.Time, dailyFactor float64) float64 {
+	hour := float64(at.Hour()) + float64(at.Minute())/60 + float64(at.Second())/3600
+	if hour <= pvSunriseHour || hour >= pvSunsetHour {
+		return 0
+	}
+
+	daylightProgress := (hour - pvSunriseHour) / (pvSunsetHour - pvSunriseHour)
+	return s.cfg.PVPeakPowerKW * dailyFactor * math.Sin(math.Pi*daylightProgress)
 }

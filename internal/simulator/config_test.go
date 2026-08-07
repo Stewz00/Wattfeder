@@ -14,6 +14,7 @@ func TestConfigValidate(t *testing.T) {
 		DeviceID:                  "home-001",
 		BatteryCapacityKWh:        10,
 		StartingBatterySOCPercent: 50,
+		PVPeakPowerKW:             6,
 	}
 
 	zeroSOC := validConfig
@@ -45,6 +46,18 @@ func TestConfigValidate(t *testing.T) {
 
 	infiniteCapacity := validConfig
 	infiniteCapacity.BatteryCapacityKWh = math.Inf(1)
+
+	zeroPVPeakPower := validConfig
+	zeroPVPeakPower.PVPeakPowerKW = 0
+
+	negativePVPeakPower := validConfig
+	negativePVPeakPower.PVPeakPowerKW = -1
+
+	nanPVPeakPower := validConfig
+	nanPVPeakPower.PVPeakPowerKW = math.NaN()
+
+	infinitePVPeakPower := validConfig
+	infinitePVPeakPower.PVPeakPowerKW = math.Inf(1)
 
 	oneDayInterval := validConfig
 	oneDayInterval.Interval = 24 * time.Hour
@@ -83,6 +96,10 @@ func TestConfigValidate(t *testing.T) {
 		{name: "capacity is negative", cfg: negativeCapacity, wantErr: true},
 		{name: "capacity is NaN", cfg: nanCapacity, wantErr: true},
 		{name: "capacity is infinite", cfg: infiniteCapacity, wantErr: true},
+		{name: "PV peak power is zero", cfg: zeroPVPeakPower, wantErr: true},
+		{name: "PV peak power is negative", cfg: negativePVPeakPower, wantErr: true},
+		{name: "PV peak power is NaN", cfg: nanPVPeakPower, wantErr: true},
+		{name: "PV peak power is infinite", cfg: infinitePVPeakPower, wantErr: true},
 		{name: "one day interval is valid", cfg: oneDayInterval},
 		{name: "interval does not divide one day", cfg: unevenInterval, wantErr: true},
 		{name: "interval is zero", cfg: zeroInterval, wantErr: true},

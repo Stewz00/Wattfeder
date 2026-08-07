@@ -24,8 +24,8 @@ visible instead of treating them as complete.
 
 ### Simulation models
 
-- [ ] Make the seed affect generated telemetry through reproducible variation.
-- [ ] Generate a plausible photovoltaic production profile.
+- [x] Make the seed affect generated telemetry through reproducible variation.
+- [x] Generate a plausible photovoltaic production profile.
 - [ ] Generate a plausible household consumption profile.
 - [ ] Generate a simulated electricity price profile.
 - [ ] Evolve battery SOC from interval energy flows and control commands.
@@ -56,11 +56,11 @@ visible instead of treating them as complete.
 
 ### Current behavior and gaps
 
-The simulator currently emits timestamp, device ID, and the configured initial
-battery SOC. PV power, load power, and electricity price remain zero. Battery
-SOC does not evolve yet, and the seeded random stream is initialized but not
-consumed. Determinism is therefore structurally tested before stochastic
-profiles are introduced.
+The simulator currently emits timestamp, device ID, the configured initial
+battery SOC, and a seeded photovoltaic profile. PV generation follows a smooth
+daylight curve with a reproducible daily weather factor and remains within its
+configured peak power. Load power and electricity price remain zero, and
+battery SOC does not evolve yet.
 
 ### Decisions to preserve
 
@@ -71,11 +71,13 @@ profiles are introduced.
 - A simulator owns its clock and random stream; separate instances cannot alter
   each other's random sequence.
 - Calling `SimulateDay` advances the same simulator to the next day.
+- Photovoltaic generation is zero outside 06:00–18:00 UTC and follows a sine
+  curve during daylight, scaled to 80–100% of configured peak power by the seed.
 
 ### Next task
 
-Implement a deterministic photovoltaic profile with explicit daylight and peak
-power invariants, then test its shape and same-seed repeatability.
+Implement a seeded household consumption profile with explicit non-negative
+power and daily shape invariants, then test repeatability and seed variation.
 
 ## Later milestones
 
