@@ -9,9 +9,8 @@ import (
 	"github.com/Stewz00/wattfeder/internal/household"
 )
 
-// These fixed parameters describe simple synthetic daily profiles. Peak widths
-// are Gaussian standard deviations in hours; scales are multipliers of each
-// profile's baseline.
+// These fixed parameters describe simple synthetic daily profiles
+// Peak widths are Gaussian standard deviations in hours; scales are multipliers of each profile's baseline
 const (
 	hoursPerDay         = 24.0
 	pvSunriseHour       = 6.0
@@ -41,7 +40,7 @@ const (
 	priceEveningPeakScale      = 0.65
 )
 
-// Simulator owns the timeline and random stream for one reproducible household run
+// Simulator owns the timeline and random stream for one reproducible household run.
 type Simulator struct {
 	cfg         Config
 	currentTime time.Time
@@ -71,8 +70,7 @@ func (s *Simulator) SimulateDay() []household.Telemetry {
 	events := make([]household.Telemetry, 0, eventCount)
 
 	destinationTime := s.currentTime.Add(simulationDuration)
-	// Keep each profile's shape stable within the simulated day while varying
-	// its overall level reproducibly between days
+	// Keep each profile's shape stable within the simulated day while varying its overall level reproducibly between days
 	dailyPVFactor := s.randomFactor(pvDailyFactorMin, pvDailyFactorMax)
 	dailyLoadFactor := s.randomFactor(loadDailyFactorMin, loadDailyFactorMax)
 	dailyPriceFactor := s.randomFactor(priceDailyFactorMin, priceDailyFactorMax)
@@ -100,8 +98,8 @@ func (s *Simulator) pvPowerKW(at time.Time, dailyFactor float64) float64 {
 		return 0
 	}
 
-	// Map 06:00–18:00 linearly to (0, 1). sin(pi*x) is zero at both
-	// boundaries, reaches one at noon, and stays positive during daylight
+	// Map 06:00 - 18:00 linearly to (0, 1)
+	// sin(pi*x) is zero at both boundaries, reaches one at noon, and stays positive during daylight
 	daylightProgress := (hour - pvSunriseHour) / (pvSunsetHour - pvSunriseHour)
 	return s.cfg.PVPeakPowerKW * dailyFactor * math.Sin(math.Pi*daylightProgress)
 }
@@ -131,9 +129,9 @@ func hourOfDay(at time.Time) float64 {
 	return float64(at.Hour()) + float64(at.Minute())/60 + float64(at.Second())/3600
 }
 
-// dailyGaussian models a gradual peak or dip instead of an abrupt time-based
-// step. It returns 1 at peakHour and falls toward 0; widthHours controls how
-// broad the shape is. Distances wrap at midnight to keep the curve continuous.
+// dailyGaussian models a gradual peak or dip instead of an abrupt time-based step
+// It returns 1 at peakHour and falls toward 0; widthHours controls how broad the shape is
+// Distances wrap at midnight to keep the curve continuous
 func dailyGaussian(hour, peakHour, widthHours float64) float64 {
 	distance := math.Abs(hour - peakHour)
 	distance = math.Min(distance, hoursPerDay-distance)

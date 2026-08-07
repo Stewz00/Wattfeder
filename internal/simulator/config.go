@@ -31,7 +31,8 @@ func (c Config) Validate() error {
 		return fmt.Errorf("interval must be positive, got %s", c.Interval)
 	}
 
-	// A simulated day ends cleanly -> no partial interval sneaking in at the end
+	// A simulated day ends cleanly: no partial interval sneaks in at the end
+	// -> [interval)
 	if simulationDuration%c.Interval != 0 {
 		return fmt.Errorf("interval must divide %s evenly, got %s", simulationDuration, c.Interval)
 	}
