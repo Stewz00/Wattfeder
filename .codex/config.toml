@@ -1,0 +1,4 @@
+[agents.go_docs_reviewer]
+description = "Reviews changed Go code for API and domain documentation quality and returns exact patches without editing files."
+config_file = "agents/go-docs-reviewer.toml"
+nickname_candidates = ["Go Docs Reviewer", "Documentation Reviewer"]

@@ -2,178 +2,93 @@
 
 @.codex/skills/coding-file-docs/SKILL.md
 
-# Agent rules
+## Go Comments and Domain Documentation
 
-## Objective
+Write code that explains its mechanics through names and structure. Comments explain domain meaning, assumptions, constraints, or non-obvious decisions.
 
-Wattfeder must be readable by software engineers without prior energy-domain knowledge.
+### Comment when
 
-Readers must be able to identify:
+* units, sign conventions, time zones, interval boundaries, or reference frames are not obvious;
+* a formula encodes domain knowledge;
+* the implementation is an approximation or simplification;
+* a constraint, invariant, or edge case explains an otherwise surprising operation;
+* a future maintainer might incorrectly “simplify” the code;
+* an exported type or function needs a short usage contract.
 
-* what the code models
-* which units and conventions it uses
-* why non-trivial calculations exist
-* which assumptions simplify reality
-* which tests protect important behavior
+### Do not comment when
 
-Do not explain basic syntax.
+* the comment only repeats the code;
+* a clearer name or extracted function would explain the operation;
+* the comment describes syntax or control flow;
+* the information is already stated nearby.
 
-## Priorities
+Prefer one precise comment over several line-by-line comments.
 
-1. Correctness
-2. Explicit assumptions
-3. Readability
-4. Testability
-5. Simplicity
-6. Performance
+### Go API documentation
 
-Deviate only for a documented requirement.
+Document exported types, functions, methods, interfaces, and constants.
 
-## Required explanations
-
-Explain code that contains:
-
-* domain calculations
-* mathematical models
-* unit conversions
-* sign conventions
-* time conventions
-* normalization or interpolation
-* boundary or wraparound behavior
-* clamps and physical limits
-* simplified models
-* non-obvious constants
-* decisions with several reasonable alternatives
-
-Comments must explain **why**, not repeat **what** the code does.
-
-Bad:
+Keep comments to one sentence when possible. Add details only for behavior callers must know.
 
 ```go
-// Divide distance by width.
-normalizedDistance := distance / widthHours
+// ApplyDispatch advances the battery state by one interval.
+// Positive power discharges the battery; the result may be constrained.
+func ApplyDispatch(...) DispatchResult
 ```
 
-Good:
+Do not write empty descriptions:
 
 ```go
-// Express distance in peak widths so widthHours directly controls
-// how quickly the Gaussian falls away from its peak.
-normalizedDistance := distance / widthHours
+// Battery represents a battery.
+type Battery struct{}
 ```
 
-Document domain and mathematical functions with:
+### Domain examples
 
-* purpose
-* input units and ranges
-* output unit or range
-* important boundary behavior
-* relevant simplifications
-
-## Naming and units
-
-Use domain-specific names.
-
-Prefer:
+Explain sign conventions:
 
 ```go
-capacityKWh
-powerKW
-durationHours
-priceEURPerMWh
-stateOfChargePercent
+// Positive power exports energy to the grid; negative power imports it.
+GridPowerKW float64
 ```
 
-Avoid vague names such as `value`, `amount`, `factor`, or `data`.
-
-Include units in names when the type does not provide them.
-
-Use one term per concept across code, tests, configuration, and documentation.
-
-## Constants
-
-Extract unexplained domain values into named constants.
-
-Explain values based on:
-
-* physical limits
-* domain conventions
-* simulation assumptions
-* business rules
-* arbitrary demo choices
-
-## Domain conventions
-
-Make these explicit wherever relevant:
-
-* power versus energy
-* percentage versus fraction
-* import versus export
-* charging versus discharging
-* local time versus UTC
-* measured versus simulated values
-
-Do not require the reader to infer a sign convention or unit.
-
-## Structure
-
-Functions should expose:
-
-1. input
-2. transformation
-3. decision
-4. output
-
-Extract a function when its name clarifies a domain operation.
-
-Do not create abstractions that only add indirection.
-
-## Tests
-
-Add focused tests for:
-
-* domain calculations
-* unit conversions
-* mathematical models
-* boundaries
-* sign conventions
-* wraparound behavior
-* physical limits
-* invalid inputs
-* deterministic simulation behavior
-
-Every non-trivial domain or mathematical function requires direct tests.
-
-Use manually verifiable inputs.
-
-Name tests by protected behavior:
+Explain approximations and their limits:
 
 ```go
-func TestDailyGaussianWrapsDistanceAcrossMidnight(t *testing.T)
+// daylightFactor approximates PV output with a half-sine between sunrise
+// and sunset. It is deterministic, not a physical irradiance model.
+func daylightFactor(...) float64
 ```
 
-Do not test trivial assignments or language behavior.
+Explain non-obvious formulas:
 
-## Documentation
+```go
+// Convert SOC to energy because dispatch changes stored energy in kWh,
+// not SOC percentage directly.
+storedEnergyKWh := socPercent / maximumSOCPercent * capacityKWh
+```
 
-Use short technical sentences.
+Explain protective operations:
 
-Separate:
+```go
+// Clamp measurement noise before dispatch to preserve the physical SOC range.
+socPercent = clamp(socPercent, minimumSOCPercent, maximumSOCPercent)
+```
 
-* current behavior
-* assumptions
-* limitations
-* planned behavior
+Do not explain obvious operations:
 
-Do not use marketing claims or unexplained abbreviations.
+```go
+// Calculate the available energy.
+availableEnergyKWh := storedEnergyKWh - reserveEnergyKWh
+```
 
-## Completion
+### Decision order
 
-Before finishing:
+Before adding a comment:
 
-1. Run formatting.
-2. Run relevant tests.
-3. Check affected documentation.
-4. Report assumptions, tests, commands, and remaining limitations.
+1. Can clearer naming remove the need? Rename.
+2. Can a small function express the concept? Extract it.
+3. Does the reader still need domain context or rationale? Comment it.
+4. Does the explanation exceed roughly four lines? Move it to package docs, domain docs, or an ADR.
 
-Never report a command as successful unless it was executed.
+Comments must remain correct when the implementation changes. Remove stale or speculative comments.
