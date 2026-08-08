@@ -67,7 +67,7 @@ visible instead of treating them as complete.
 
 ## Current milestone: v0.2 — Persistent Device State
 
-### Completed persistence groundwork
+### Completed persistence work
 
 - [x] Assign every simulated telemetry event a stable producer-owned event ID.
 - [x] Propagate event IDs through latest state, application output, and demo output.
@@ -76,14 +76,14 @@ visible instead of treating them as complete.
 - [x] Define migration ownership, latest-state lookup, and one atomic repository commit operation.
 - [x] Define duplicate commits as no-op results and persistence failures as all-or-nothing operations.
 - [x] Document event identity, transaction boundaries, migration ownership, and current delivery limits.
+- [x] Implement the SQLite schema and ordered migrations.
+- [x] Implement the SQLite repository and atomic processing transaction.
+- [x] Cover migration, restart, duplicate-event, rollback, and traceability behavior with integration tests.
 
 ### Remaining persistence work
 
-- [ ] Implement the SQLite schema and ordered migrations.
-- [ ] Implement the SQLite repository and atomic processing transaction.
 - [ ] Restore the latest state during application startup.
 - [ ] Connect persistence to event processing before applying simulator commands.
-- [ ] Cover migration, restart, duplicate-event, rollback, and traceability behavior with integration tests.
 
 ### Current behavior and gaps
 
@@ -110,7 +110,7 @@ The CLI connects simulator, state update, policy, command application, and
 newline-delimited JSON output for one configurable 24-hour simulation. It
 rejects invalid arguments and configuration, provides flag help, and treats
 SIGINT or SIGTERM cancellation as a graceful shutdown. State and output remain
-process-local; persistence begins in v0.2.
+process-local because the CLI does not open or use the SQLite adapter yet.
 
 The CLI also loads a deterministic JSON demo scenario when `-scenario` is used.
 Scenario mode rejects additional configuration flags, validates the scenario
@@ -124,8 +124,18 @@ latest-state records. One validated processing result binds those records by
 event ID and requires UTC source, receive, and command-creation timestamps. The
 repository contract assigns migrations to the adapter, exposes latest-state
 restore, and requires telemetry, command, and latest state to commit atomically.
-A duplicate event ID changes nothing. No SQLite adapter, schema, database file,
-startup restore, or application integration exists yet.
+A duplicate event ID changes nothing.
+
+The SQLite adapter applies its initial schema migration transactionally and
+records ordered versions. The schema stores telemetry and command history plus
+one latest-state row per device, with event-ID foreign keys and domain checks.
+The repository validates each processing result before atomically inserting its
+telemetry and command and replacing latest state. A duplicate telemetry event
+rolls back without changing any record. Latest state survives closing and
+reopening the database. Migration, restart, duplicate, rollback, and
+traceability behavior is covered by integration tests. No database file is
+created unless a caller opens a path; startup restore and application
+integration do not exist yet.
 
 ### Decisions to preserve
 
@@ -199,15 +209,22 @@ startup restore, or application integration exists yet.
   record. A persistence error leaves all supplied records non-durable.
 - The persistence adapter owns ordered migrations; the command-line package
   does not select migrations or contain SQL.
+- SQLite migrations run transactionally, must remain contiguous from version 1,
+  and reject renamed or newer-than-supported migration history.
+- SQLite enforces event-ID relationships and domain constraints in addition to
+  processing-result validation.
+- One latest-state row is replaced per device and retains the telemetry event ID
+  that produced it.
 - Persistence must commit before a command advances the simulator or another
   device. Crash recovery between database commit and command delivery remains
   undefined.
 
 ### Next task
 
-Implement the SQLite schema, ordered migrations, and repository transaction for
-the verified persistence contract, including duplicate-event and rollback
-integration tests.
+Restore the latest device state during application startup, then commit each
+processing result before applying its simulator command. Cover startup restore,
+duplicate processing, and persistence-failure ordering through the application
+and CLI boundaries.
 
 ## Later milestones
 

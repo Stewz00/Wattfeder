@@ -6,8 +6,8 @@
 - Make for the repository commands
 - Git to clone the repository
 
-The application has no third-party Go modules. It does not require Docker, a
-database, or a message broker.
+The project uses a pure-Go SQLite module. The current application does not open
+a database and does not require Docker or a message broker.
 
 ## Installation
 

@@ -2,9 +2,10 @@
 
 ## Status
 
-The persistence records and repository contract are implemented. The current
-application still uses in-memory state; the SQLite adapter, migrations, startup
-restore, and duplicate-processing integration are the next implementation step.
+The persistence records, repository contract, SQLite adapter, and initial
+migration are implemented. The current application still uses in-memory state;
+startup restore and durable event-processing integration are the next
+implementation step.
 
 ## Event identity
 
@@ -17,7 +18,7 @@ timestamp. This is a simulation convention, not a security credential. It makes
 replaying the same configured interval identifiable as a duplicate while IDs
 remain distinct across devices and timestamps.
 
-The database will enforce event ID uniqueness. Device ID and timestamp are not
+The database enforces event ID uniqueness. Device ID and timestamp are not
 the database identity because later telemetry sources may legitimately assign
 several events to the same device and timestamp.
 
@@ -66,6 +67,12 @@ Migration execution must be transactional where SQLite permits it, record the
 applied schema version in the database, and be safe when the schema is already
 current.
 
+The SQLite adapter applies migrations in one transaction and rejects gaps,
+renamed migrations, and database versions newer than the adapter understands.
+Its initial schema creates telemetry history, command history, latest device
+state, and their event-ID relationships. Foreign-key and domain constraints
+provide a second line of defense behind processing-result validation.
+
 The command-line package must not contain SQL or select individual migrations.
 This keeps schema changes versioned with the adapter that reads and writes the
 records.
@@ -78,4 +85,5 @@ records.
   to an external battery is not yet defined.
 - Event IDs are producer-owned, case-sensitive, and cannot have surrounding
   whitespace. Wattfeder validates them but does not rewrite them.
-- No SQLite schema or database file exists yet.
+- The adapter does not create a database file until a caller opens a configured
+  path; the command-line application does not select that path yet.

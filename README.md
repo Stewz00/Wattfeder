@@ -6,12 +6,14 @@ electricity price, and battery telemetry for one 24-hour period, then chooses a
 charge, discharge, or idle command for each interval.
 
 The current version runs one household locally, validates telemetry, evolves
-battery state, and emits newline-delimited JSON. State remains in memory;
-SQLite persistence is the next milestone.
+battery state, and emits newline-delimited JSON. A SQLite adapter can migrate
+and atomically store processing records, but the CLI still keeps active state in
+memory and does not open a database yet.
 
 ## Run
 
-Wattfeder requires Go 1.26.5 and has no third-party Go dependencies.
+Wattfeder requires Go 1.26.5. Go downloads the pure-Go SQLite dependency when
+needed.
 
 ```bash
 make demo   # Run the fixed four-step scenario

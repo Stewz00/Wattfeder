@@ -43,16 +43,17 @@ writes separate progress records so each step is visible.
 
 ## Storage
 
-There is no persistent storage adapter yet. The simulator clock, battery state,
-and latest telemetry remain in memory. JSON output goes to standard output.
-Process exit removes all state.
+The SQLite adapter owns ordered schema migrations and atomically stores
+telemetry history, command history, and latest device state. Event IDs link all
+three durable records and let the adapter reject duplicate processing without
+changing existing data. See the
+[persistence design](engineering/PERSISTENCE-DESIGN.md) for the schema and
+transaction semantics.
 
-The v0.2 persistence contract now defines telemetry history, command history,
-latest device state, migration ownership, and one atomic commit operation. Event
-IDs link all three durable records and let an adapter reject duplicate
-processing. See the [persistence design](engineering/PERSISTENCE-DESIGN.md) for
-the transaction and failure semantics that the SQLite implementation must
-preserve.
+The application is not connected to the adapter yet. The simulator clock,
+battery state, and latest telemetry used by a run remain in memory, and JSON
+output goes to standard output. Process exit therefore still removes the
+application's active state.
 
 ## Configuration
 
@@ -76,8 +77,8 @@ cancel the command without reporting an execution failure.
 ## Current limitations
 
 - One process handles one household.
-- There is no database implementation, queue, network API, or external
-  telemetry source.
+- The SQLite adapter is not connected to application startup or event
+  processing; there is no queue, network API, or external telemetry source.
 - The state component accepts one device ID per run.
 - There are no retries because the current flow has no external operations.
 - Health endpoints and runtime metrics are not implemented.
