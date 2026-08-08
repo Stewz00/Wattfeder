@@ -13,7 +13,7 @@ visible instead of treating them as complete.
 
 ### Completed foundation
 
-- [x] Define household telemetry, battery state, and command domain types.
+- [x] Define household telemetry, latest-state, and command domain types.
 - [x] Validate simulator start time, interval, device ID, capacity, and initial SOC.
 - [x] Reject non-finite battery capacity and SOC values.
 - [x] Give each simulator an isolated PRNG initialized from its seed.
@@ -37,6 +37,8 @@ visible instead of treating them as complete.
 - [x] Validate incoming telemetry independently from simulator configuration.
 - [x] Apply telemetry to household state.
 - [x] Implement charge, discharge, and idle control decisions.
+- [x] Configure the control policy with battery capacity and telemetry interval.
+- [x] Limit discharge power to the energy available above the battery reserve.
 - [x] Include a human-readable reason with every decision.
 - [x] Connect simulator, state update, policy, command, and output in one data flow.
 
@@ -53,8 +55,10 @@ visible instead of treating them as complete.
 - [x] Cover profile invariants and seeded variation.
 - [x] Cover telemetry validation boundaries.
 - [x] Cover control-policy boundaries with table-driven tests.
-- [x] Cover command validation, simulator command sequencing, application flow,
-  cancellation, and CLI output.
+- [x] Cover command validation, simulator command sequencing, application flow
+  and failure paths, and cancellation.
+- [x] Cover CLI help, argument validation, configuration mapping, deterministic
+  output, cancellation, and output failures.
 - [x] Document setup, execution, assumptions, and example output in the README.
 
 ### Current behavior and gaps
@@ -71,9 +75,10 @@ Valid telemetry initializes and replaces the latest in-memory state for one
 device. Invalid telemetry and events from another device are rejected without
 changing that state. The deterministic policy charges from a PV surplus while
 the battery is below full, and discharges a load deficit only when electricity
-costs at least EUR 0.30/kWh and battery SOC is above the 20% reserve. Other
-conditions produce an idle command. Every command has a human-readable reason
-and a finite, non-negative power magnitude.
+costs at least EUR 0.30/kWh and battery SOC is above the 20% reserve. Discharge
+power is limited when necessary so the interval ends at the reserve instead of
+crossing it. Other conditions produce an idle command. Every command has a
+human-readable reason and a finite, non-negative power magnitude.
 
 The CLI connects simulator, state update, policy, command application, and
 newline-delimited JSON output for one configurable 24-hour simulation. It
@@ -120,6 +125,9 @@ process-local; persistence begins in v0.2.
   is full.
 - A load deficit produces a discharge command for the deficit power only when
   battery SOC is above 20% and electricity price is at least EUR 0.30/kWh.
+- When serving the full load deficit would cross the 20% reserve, the policy
+  limits average discharge power to the energy available above the reserve for
+  that interval.
 - Balanced power, a full battery during surplus, the battery reserve, and a
   price below the discharge threshold produce idle commands with zero power.
 - Command power is a non-negative magnitude; the decision carries its charge,
@@ -148,3 +156,5 @@ SQLite-backed state.
 - [ ] v0.4 — Multi-Device Processing
 - [ ] v0.5 — Observability and Local Operations
 - [ ] v0.6 — Pluggable Telemetry Sources
+- [ ] v0.7 — Device Fleet Management
+- [ ] v0.8 — Kubernetes Deployment

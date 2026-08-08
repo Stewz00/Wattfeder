@@ -1,18 +1,22 @@
 # Wattfeder Roadmap
 
-Wattfeder is a learning and portfolio project for exploring reliable distributed energy software in Go.
+Wattfeder is a learning and portfolio project for exploring reliable
+distributed energy software in Go.
 
-The roadmap is intentionally incremental. Each milestone should produce a working, demonstrable system before additional infrastructure or domain complexity is introduced.
+The roadmap is intentionally incremental. Each milestone should produce a
+working, demonstrable system before additional infrastructure or domain
+complexity is introduced.
 
-The current milestone should remain the main focus. Later milestones describe possible directions rather than fixed commitments.
+The current milestone should remain the main focus. Later milestones describe
+possible directions rather than fixed commitments.
 
 ## Progress
 
 | Milestone | Status |
 | --- | --- |
 | v0.1 — Single Household Simulation | Complete |
-| v0.2 — Persistent Device State | Next |
-| v0.3–v0.7 | Planned |
+| v0.2 — Persistent Device State | Current |
+| v0.3–v0.8 | Planned |
 
 The v0.1 application now runs one deterministic household simulation from the
 CLI, validates and applies telemetry, produces battery commands, applies those
@@ -24,9 +28,13 @@ history.
 
 ## v0.1 — Single Household Simulation
 
+**Status:** Complete. The implementation and its automated checks are the
+baseline for later milestones.
+
 ### Goal
 
-Build the smallest complete system that processes simulated household energy data and produces deterministic control decisions.
+Build the smallest complete system that processes simulated household energy
+data and produces deterministic control decisions.
 
 ### Scope
 
@@ -53,13 +61,13 @@ Household simulator
         ↓
 Telemetry event
         ↓
-State update
+Validated in-memory state
         ↓
 Control policy
         ↓
 Command
-        ↓
-Structured output
+        ├──→ Structured output
+        └──→ Battery state for the next interval
 ```
 
 ### Example output
@@ -78,14 +86,36 @@ Structured output
 }
 ```
 
-### Exit criteria
+### Completion evidence
 
-* `go run ./cmd/wattfeder` starts the simulation.
-* The same input always produces the same decision.
-* Decisions include an understandable explanation.
-* Invalid telemetry is rejected or handled explicitly.
-* Relevant policy boundaries are covered by tests.
-* Another developer can clone and run the project using the README.
+* `go run ./cmd/wattfeder` runs one configurable simulated day and emits
+  newline-delimited JSON.
+* Repeat runs with the same configuration and seed produce identical output.
+* Every command contains a charge, discharge, or idle decision and a
+  human-readable reason.
+* Telemetry and commands reject blank, non-finite, out-of-range, and
+  structurally invalid values without partially updating state.
+* Table-driven tests cover policy thresholds, battery bounds, and limiting a
+  discharge so it cannot cross the 20% reserve during an interval.
+* Application tests cover cancellation and failures while obtaining telemetry,
+  applying commands, and writing output.
+* CLI tests cover help, invalid arguments, configuration mapping, deterministic
+  output, cancellation, and output errors.
+* `make check` verifies formatting, module metadata, static analysis, tests, and
+  compilation.
+* The README documents setup, execution, configuration discovery, model
+  assumptions, and verification.
+
+### Deliberate limitations
+
+* One process simulates one household for one 24-hour window.
+* Telemetry, latest state, decisions, and output are not persisted.
+* Profiles are synthetic and deterministic rather than forecasts.
+* The battery model assumes perfect efficiency and no battery power limit.
+* The grid implicitly absorbs unused photovoltaic surplus and supplies demand
+  not served by the battery.
+* There is no network API, external message broker, database, or real-device
+  integration.
 
 ---
 
@@ -498,7 +528,8 @@ A working vertical slice has priority over Kubernetes, message brokers, dashboar
 
 ### Reliability before optimization
 
-The system should first behave correctly during duplicates, restarts and delayed events. Performance optimization should follow measurement.
+The system should first behave correctly during duplicates, restarts and
+delayed events. Performance optimization should follow measurement.
 
 ### Current architecture only
 
@@ -518,7 +549,8 @@ Every generated control decision should include enough information to understand
 
 ### Limited scope
 
-Each release should solve one main engineering problem. Features that do not contribute to its exit criteria should normally be postponed.
+Each release should solve one main engineering problem. Features that do not
+contribute to its exit criteria should normally be postponed.
 
 ---
 
@@ -527,18 +559,17 @@ Each release should solve one main engineering problem. Features that do not con
 The current focus is:
 
 ```text
-v0.1 — Single Household Simulation
+v0.2 — Persistent Device State
 ```
 
-The immediate implementation sequence is:
+The next implementation sequence is:
 
-1. Define telemetry and command models.
-2. Implement deterministic household simulation.
-3. Implement a minimal control policy.
-4. Add table-driven policy tests.
-5. Add input validation.
-6. Add structured console output.
-7. Add graceful shutdown.
-8. Document how to run the simulation.
+1. Define event and command identity before choosing storage representations.
+2. Specify stored telemetry, command, and latest-state records.
+3. Decide the atomic processing and duplicate-handling boundary.
+4. Add reproducible SQLite migrations and a repository layer.
+5. Restore latest device state during startup.
+6. Prove restart recovery and duplicate handling with integration tests.
 
-No persistence, Kubernetes, frontend, real hardware or external message broker is required for v0.1.
+Kubernetes, a frontend, real hardware, and an external message broker remain
+outside the current milestone.
