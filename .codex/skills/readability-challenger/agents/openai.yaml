@@ -1,0 +1,6 @@
+interface:
+  display_name: "Readability Challenger"
+  short_description: "Review code for domain readability gaps"
+  default_prompt: "Use $readability-challenger to review the requested code and write a structured readability report."
+policy:
+  allow_implicit_invocation: false
