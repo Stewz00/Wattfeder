@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/Stewz00/wattfeder/internal/household"
-	"github.com/Stewz00/wattfeder/internal/simulator"
 )
 
 // Record is the telemetry event and resulting command for one simulation interval.
@@ -23,8 +22,14 @@ type Record struct {
 	Reason            string             `json:"reason"`
 }
 
+type simulation interface {
+	IntervalsPerDay() int
+	NextTelemetry() (household.Telemetry, error)
+	ApplyCommand(household.Command) error
+}
+
 // RunDay processes one simulated day and writes one record for each telemetry event.
-func RunDay(ctx context.Context, sim *simulator.Simulator, write func(Record) error) error {
+func RunDay(ctx context.Context, sim simulation, policy household.Policy, write func(Record) error) error {
 	var state household.State
 
 	for range sim.IntervalsPerDay() {
@@ -40,7 +45,7 @@ func RunDay(ctx context.Context, sim *simulator.Simulator, write func(Record) er
 			return fmt.Errorf("apply telemetry: %w", err)
 		}
 
-		command := household.Decide(state)
+		command := policy.Decide(state)
 		if err := sim.ApplyCommand(command); err != nil {
 			return fmt.Errorf("apply control command: %w", err)
 		}

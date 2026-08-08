@@ -52,6 +52,8 @@ Charge power is positive, discharge power is negative, and idle power is zero.
 The runnable application obtains that command from the control policy. The
 standalone `SimulateDay` helper uses the household's PV-minus-load balance as an
 uncontrolled command so it retains the original passive simulation behavior.
+When the policy discharges, it limits command power to the energy available
+above the 20% reserve over the configured interval.
 
 Stored energy is clamped to zero and the configured capacity. The grid
 implicitly handles any household balance that the command does not assign to

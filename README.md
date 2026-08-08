@@ -96,7 +96,8 @@ make check
   battery power limit.
 - The control policy charges a PV surplus unless the battery is full.
 - It discharges a load deficit only above the 20% SOC reserve and at an
-  electricity price of at least EUR 0.30/kWh.
+  electricity price of at least EUR 0.30/kWh. Discharge power is limited when
+  necessary so the interval cannot take the battery below the reserve.
 - Idle decisions leave the battery unchanged; the grid implicitly handles the
   remaining household surplus or deficit.
 

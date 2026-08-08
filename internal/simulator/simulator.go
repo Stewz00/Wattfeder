@@ -175,6 +175,7 @@ func passiveCommand(event household.Telemetry) household.Command {
 }
 
 func commandBatteryPowerKW(command household.Command) float64 {
+	// Commands use non-negative magnitudes; discharge becomes negative battery-relative power
 	if command.Decision == household.DecisionDischarge {
 		return -command.PowerKW
 	}
@@ -188,6 +189,7 @@ func nextBatterySOCPercent(
 	interval time.Duration,
 	capacityKWh float64,
 ) float64 {
+	// SOC is converted to energy because power changes stored energy rather than percentage directly
 	currentEnergyKWh := currentSOCPercent / maximumBatterySOCPercent * capacityKWh
 	intervalEnergyKWh := batteryPowerKW * interval.Hours()
 	nextEnergyKWh := currentEnergyKWh + intervalEnergyKWh
@@ -245,6 +247,7 @@ func hourOfDay(at time.Time) float64 {
 func dailyGaussian(hour, peakHour, widthHours float64) float64 {
 	distance := math.Abs(hour - peakHour)
 	distance = math.Min(distance, hoursPerDay-distance)
+	// Dividing by the width expresses distance in peak widths; the exponential turns it into a smooth bell curve
 	normalizedDistance := distance / widthHours
 	return math.Exp(-0.5 * normalizedDistance * normalizedDistance)
 }

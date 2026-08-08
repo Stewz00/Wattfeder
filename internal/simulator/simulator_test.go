@@ -9,6 +9,9 @@ import (
 	"github.com/Stewz00/wattfeder/internal/household"
 )
 
+// Floating-point calculations can miss an expected result by a tiny representation error
+const floatingPointTolerance = 1e-12
+
 func TestNewRejectsInvalidConfig(t *testing.T) {
 	cfg := validSimulatorConfig()
 	cfg.Interval = 0
@@ -64,7 +67,7 @@ func TestSimulatorSimulateDay(t *testing.T) {
 		}
 
 		wantSOCPercent := wantBatteryEnergyKWh / cfg.BatteryCapacityKWh * 100
-		if math.Abs(event.BatterySOCPercent-wantSOCPercent) > 1e-12 {
+		if math.Abs(event.BatterySOCPercent-wantSOCPercent) > floatingPointTolerance {
 			t.Errorf("event %d battery SOC = %v, want %v from prior interval energy", i, event.BatterySOCPercent, wantSOCPercent)
 		}
 
@@ -123,7 +126,7 @@ func TestSimulatorSimulateDayAdvancesToNextDay(t *testing.T) {
 		cfg.Interval,
 		cfg.BatteryCapacityKWh,
 	)
-	if math.Abs(secondDay[0].BatterySOCPercent-wantFirstSOC) > 1e-12 {
+	if math.Abs(secondDay[0].BatterySOCPercent-wantFirstSOC) > floatingPointTolerance {
 		t.Errorf("second day starts with battery SOC %v, want carried state %v", secondDay[0].BatterySOCPercent, wantFirstSOC)
 	}
 
@@ -200,8 +203,51 @@ func TestNextBatterySOCPercent(t *testing.T) {
 				tt.interval,
 				tt.capacityKWh,
 			)
-			if math.Abs(got-tt.wantSOCPercent) > 1e-12 {
+			if math.Abs(got-tt.wantSOCPercent) > floatingPointTolerance {
 				t.Errorf("nextBatterySOCPercent() = %v, want %v", got, tt.wantSOCPercent)
+			}
+		})
+	}
+}
+
+func TestPassiveCommand(t *testing.T) {
+	tests := []struct {
+		name  string
+		event household.Telemetry
+		want  household.Command
+	}{
+		{
+			name:  "surplus charges",
+			event: household.Telemetry{PVPowerKW: 3, LoadPowerKW: 1},
+			want: household.Command{
+				Decision: household.DecisionCharge,
+				PowerKW:  2,
+				Reason:   "Follow uncontrolled net power",
+			},
+		},
+		{
+			name:  "deficit discharges",
+			event: household.Telemetry{PVPowerKW: 1, LoadPowerKW: 3},
+			want: household.Command{
+				Decision: household.DecisionDischarge,
+				PowerKW:  2,
+				Reason:   "Follow uncontrolled net power",
+			},
+		},
+		{
+			name:  "balance idles",
+			event: household.Telemetry{PVPowerKW: 2, LoadPowerKW: 2},
+			want: household.Command{
+				Decision: household.DecisionIdle,
+				Reason:   "Follow uncontrolled net power",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := passiveCommand(tt.event); got != tt.want {
+				t.Errorf("passiveCommand() = %+v, want %+v", got, tt.want)
 			}
 		})
 	}
@@ -262,7 +308,7 @@ func TestSimulatorAppliesControlCommandsToBatteryState(t *testing.T) {
 			if err != nil {
 				t.Fatalf("second NextTelemetry() error = %v", err)
 			}
-			if math.Abs(second.BatterySOCPercent-tt.wantSOCPercent) > 1e-12 {
+			if math.Abs(second.BatterySOCPercent-tt.wantSOCPercent) > floatingPointTolerance {
 				t.Errorf("SOC after %s command = %v, want %v", tt.name, second.BatterySOCPercent, tt.wantSOCPercent)
 			}
 			if !second.Timestamp.Equal(first.Timestamp.Add(cfg.Interval)) {
@@ -462,6 +508,7 @@ func TestSimulatorLoadProfileIsContinuousAtMidnight(t *testing.T) {
 	beforeMidnight := time.Date(2026, 8, 7, 23, 59, 0, 0, time.UTC)
 	afterMidnight := time.Date(2026, 8, 8, 0, 1, 0, 0, time.UTC)
 	difference := math.Abs(sim.loadPowerKW(beforeMidnight, 1) - sim.loadPowerKW(afterMidnight, 1))
+	// A two-minute step should change the smooth profile by no more than 2% of the configured base load
 	maximumDifference := cfg.LoadBasePowerKW * 0.02
 	if difference > maximumDifference {
 		t.Errorf("load power changes by %v across midnight, want at most %v", difference, maximumDifference)

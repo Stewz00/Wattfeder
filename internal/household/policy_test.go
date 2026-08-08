@@ -2,10 +2,42 @@ package household
 
 import (
 	"fmt"
+	"math"
 	"testing"
+	"time"
 )
 
-func TestDecide(t *testing.T) {
+// Floating-point calculations can miss an expected result by a tiny representation error
+const floatingPointTolerance = 1e-12
+
+func TestNewPolicy(t *testing.T) {
+	tests := []struct {
+		name               string
+		batteryCapacityKWh float64
+		interval           time.Duration
+		wantErr            bool
+	}{
+		{name: "valid policy", batteryCapacityKWh: 10, interval: time.Hour},
+		{name: "zero capacity", interval: time.Hour, wantErr: true},
+		{name: "negative capacity", batteryCapacityKWh: -1, interval: time.Hour, wantErr: true},
+		{name: "NaN capacity", batteryCapacityKWh: math.NaN(), interval: time.Hour, wantErr: true},
+		{name: "infinite capacity", batteryCapacityKWh: math.Inf(1), interval: time.Hour, wantErr: true},
+		{name: "zero interval", batteryCapacityKWh: 10, wantErr: true},
+		{name: "negative interval", batteryCapacityKWh: 10, interval: -time.Hour, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewPolicy(tt.batteryCapacityKWh, tt.interval)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewPolicy() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestPolicyDecide(t *testing.T) {
+	policy := newTestPolicy(t, 10, time.Hour)
 	reserveReason := fmt.Sprintf(
 		"Battery state of charge is at or below the %g%% reserve",
 		minimumDischargeSOCPercent,
@@ -17,6 +49,10 @@ func TestDecide(t *testing.T) {
 	dischargeReason := fmt.Sprintf(
 		"Electricity price is at or above EUR %.2f/kWh and household load exceeds PV production",
 		dischargePriceEURPerKWh,
+	)
+	limitedReason := fmt.Sprintf(
+		"High electricity price favors discharge, but power is limited to keep the battery at or above the %g%% reserve",
+		minimumDischargeSOCPercent,
 	)
 
 	tests := []struct {
@@ -105,7 +141,20 @@ func TestDecide(t *testing.T) {
 			},
 		},
 		{
-			name: "discharges above reserve boundary",
+			name: "idles below reserve boundary",
+			state: State{
+				PVPowerKW:         1,
+				LoadPowerKW:       3,
+				BatterySOCPercent: 19.999,
+				PriceEURPerKWh:    0.40,
+			},
+			want: Command{
+				Decision: DecisionIdle,
+				Reason:   reserveReason,
+			},
+		},
+		{
+			name: "limits discharge just above reserve boundary",
 			state: State{
 				PVPowerKW:         1,
 				LoadPowerKW:       3,
@@ -114,17 +163,58 @@ func TestDecide(t *testing.T) {
 			},
 			want: Command{
 				Decision: DecisionDischarge,
-				PowerKW:  2,
-				Reason:   dischargeReason,
+				PowerKW:  0.0001,
+				Reason:   limitedReason,
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Decide(tt.state); got != tt.want {
+			got := policy.Decide(tt.state)
+			if got.Decision != tt.want.Decision || got.Reason != tt.want.Reason ||
+				math.Abs(got.PowerKW-tt.want.PowerKW) > floatingPointTolerance {
 				t.Errorf("Decide() = %+v, want %+v", got, tt.want)
 			}
 		})
 	}
+}
+
+func TestPolicyDecideAccountsForIntervalLength(t *testing.T) {
+	state := State{
+		LoadPowerKW:       4,
+		BatterySOCPercent: 30,
+		PriceEURPerKWh:    0.40,
+	}
+
+	tests := []struct {
+		name        string
+		interval    time.Duration
+		wantPowerKW float64
+	}{
+		{name: "one hour", interval: time.Hour, wantPowerKW: 1},
+		{name: "half hour", interval: 30 * time.Minute, wantPowerKW: 2},
+		{name: "quarter hour", interval: 15 * time.Minute, wantPowerKW: 4},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := newTestPolicy(t, 10, tt.interval)
+			command := policy.Decide(state)
+			if command.Decision != DecisionDischarge || command.PowerKW != tt.wantPowerKW {
+				t.Errorf("Decide() = %+v, want discharge at %v kW", command, tt.wantPowerKW)
+			}
+		})
+	}
+}
+
+func newTestPolicy(t *testing.T, batteryCapacityKWh float64, interval time.Duration) Policy {
+	t.Helper()
+
+	policy, err := NewPolicy(batteryCapacityKWh, interval)
+	if err != nil {
+		t.Fatalf("NewPolicy() error = %v", err)
+	}
+
+	return policy
 }

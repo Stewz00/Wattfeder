@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Stewz00/wattfeder/internal/application"
+	"github.com/Stewz00/wattfeder/internal/household"
 	"github.com/Stewz00/wattfeder/internal/simulator"
 )
 
@@ -59,7 +60,7 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 		return fmt.Errorf("parse -start: %w", err)
 	}
 
-	sim, err := simulator.New(simulator.Config{
+	cfg := simulator.Config{
 		Seed:                      *seed,
 		Start:                     startTime,
 		Interval:                  *interval,
@@ -69,13 +70,18 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 		PVPeakPowerKW:             *pvPeakPower,
 		LoadBasePowerKW:           *loadBasePower,
 		PriceBaseEURPerKWh:        *priceBase,
-	})
+	}
+	policy, err := household.NewPolicy(cfg.BatteryCapacityKWh, cfg.Interval)
+	if err != nil {
+		return fmt.Errorf("configure control policy: %w", err)
+	}
+	sim, err := simulator.New(cfg)
 	if err != nil {
 		return err
 	}
 
 	encoder := json.NewEncoder(output)
-	if err := application.RunDay(ctx, sim, func(record application.Record) error {
+	if err := application.RunDay(ctx, sim, policy, func(record application.Record) error {
 		return encoder.Encode(record)
 	}); err != nil {
 		return fmt.Errorf("run simulation: %w", err)

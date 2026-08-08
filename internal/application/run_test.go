@@ -11,11 +11,19 @@ import (
 	"github.com/Stewz00/wattfeder/internal/simulator"
 )
 
+// Floating-point calculations can miss an expected result by a tiny representation error
+// This tolerance ignores that noise without accepting a meaningful SOC or power difference
+const floatingPointTolerance = 1e-12
+
+// The application should enforce the reserve defined by the household policy
+const policyReserveSOCPercent = 20.0
+
 func TestRunDayConnectsTelemetryPolicyCommandAndOutput(t *testing.T) {
 	sim, cfg := newTestSimulator(t)
+	policy := newTestPolicy(t, cfg)
 
 	var records []Record
-	if err := RunDay(context.Background(), sim, func(record Record) error {
+	if err := RunDay(context.Background(), sim, policy, func(record Record) error {
 		records = append(records, record)
 		return nil
 	}); err != nil {
@@ -32,6 +40,10 @@ func TestRunDayConnectsTelemetryPolicyCommandAndOutput(t *testing.T) {
 		}
 		if record.Decision == "" || record.Reason == "" {
 			t.Errorf("record %d decision = %q, reason = %q, want both populated", i, record.Decision, record.Reason)
+		}
+		if record.BatterySOCPercent < policyReserveSOCPercent-floatingPointTolerance {
+			// %% escapes the percent sign in the formatted failure message
+			t.Errorf("record %d battery SOC = %v, want at least the 20%% reserve", i, record.BatterySOCPercent)
 		}
 	}
 
@@ -50,7 +62,7 @@ func TestRunDayConnectsTelemetryPolicyCommandAndOutput(t *testing.T) {
 		}
 
 		wantSOCPercent := nextSOCPercent(record.BatterySOCPercent, batteryPowerKW, cfg)
-		if math.Abs(records[i+1].BatterySOCPercent-wantSOCPercent) > 1e-12 {
+		if math.Abs(records[i+1].BatterySOCPercent-wantSOCPercent) > floatingPointTolerance {
 			t.Errorf(
 				"battery SOC after record %d = %v, want %v from %q command",
 				i,
@@ -63,11 +75,12 @@ func TestRunDayConnectsTelemetryPolicyCommandAndOutput(t *testing.T) {
 }
 
 func TestRunDayStopsAfterCancellation(t *testing.T) {
-	sim, _ := newTestSimulator(t)
+	sim, cfg := newTestSimulator(t)
+	policy := newTestPolicy(t, cfg)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	writeCount := 0
-	err := RunDay(ctx, sim, func(Record) error {
+	err := RunDay(ctx, sim, policy, func(Record) error {
 		writeCount++
 		cancel()
 		return nil
@@ -81,14 +94,68 @@ func TestRunDayStopsAfterCancellation(t *testing.T) {
 }
 
 func TestRunDayReturnsOutputError(t *testing.T) {
-	sim, _ := newTestSimulator(t)
+	sim, cfg := newTestSimulator(t)
+	policy := newTestPolicy(t, cfg)
 	wantErr := errors.New("output unavailable")
 
-	err := RunDay(context.Background(), sim, func(Record) error {
+	err := RunDay(context.Background(), sim, policy, func(Record) error {
 		return wantErr
 	})
 	if !errors.Is(err, wantErr) {
 		t.Errorf("RunDay() error = %v, want wrapped output error %v", err, wantErr)
+	}
+}
+
+func TestRunDayReturnsSimulationErrors(t *testing.T) {
+	policy, err := household.NewPolicy(10, time.Hour)
+	if err != nil {
+		t.Fatalf("NewPolicy() error = %v", err)
+	}
+	wantErr := errors.New("simulator unavailable")
+
+	tests := []struct {
+		name string
+		sim  *stubSimulation
+	}{
+		{
+			name: "telemetry error",
+			sim:  &stubSimulation{nextErr: wantErr},
+		},
+		{
+			name: "command error",
+			sim: &stubSimulation{
+				event:    validApplicationTelemetry(),
+				applyErr: wantErr,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := RunDay(context.Background(), tt.sim, policy, func(Record) error { return nil })
+			if !errors.Is(err, wantErr) {
+				t.Errorf("RunDay() error = %v, want wrapped error %v", err, wantErr)
+			}
+		})
+	}
+}
+
+func TestRunDayRejectsInvalidSimulatedTelemetry(t *testing.T) {
+	policy, err := household.NewPolicy(10, time.Hour)
+	if err != nil {
+		t.Fatalf("NewPolicy() error = %v", err)
+	}
+	event := validApplicationTelemetry()
+	event.PriceEURPerKWh = 0
+
+	err = RunDay(
+		context.Background(),
+		&stubSimulation{event: event},
+		policy,
+		func(Record) error { return nil },
+	)
+	if err == nil {
+		t.Fatal("RunDay() error = nil, want invalid telemetry error")
 	}
 }
 
@@ -114,6 +181,47 @@ func newTestSimulator(t *testing.T) (*simulator.Simulator, simulator.Config) {
 	return sim, cfg
 }
 
+func newTestPolicy(t *testing.T, cfg simulator.Config) household.Policy {
+	t.Helper()
+
+	policy, err := household.NewPolicy(cfg.BatteryCapacityKWh, cfg.Interval)
+	if err != nil {
+		t.Fatalf("NewPolicy() error = %v", err)
+	}
+
+	return policy
+}
+
+// stubSimulation lets tests force results and failures that the real simulator cannot produce on demand
+type stubSimulation struct {
+	event    household.Telemetry
+	nextErr  error
+	applyErr error
+}
+
+func (s *stubSimulation) IntervalsPerDay() int {
+	return 1
+}
+
+func (s *stubSimulation) NextTelemetry() (household.Telemetry, error) {
+	return s.event, s.nextErr
+}
+
+func (s *stubSimulation) ApplyCommand(household.Command) error {
+	return s.applyErr
+}
+
+func validApplicationTelemetry() household.Telemetry {
+	return household.Telemetry{
+		Timestamp:         time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC),
+		DeviceID:          "home-001",
+		LoadPowerKW:       1,
+		BatterySOCPercent: 50,
+		PriceEURPerKWh:    0.40,
+	}
+}
+
+// nextSOCPercent calculates the expected result independently from the simulator under test
 func nextSOCPercent(currentSOCPercent, batteryPowerKW float64, cfg simulator.Config) float64 {
 	currentEnergyKWh := currentSOCPercent / 100 * cfg.BatteryCapacityKWh
 	nextEnergyKWh := currentEnergyKWh + batteryPowerKW*cfg.Interval.Hours()
