@@ -1,7 +1,7 @@
 # Internal Implementation Checklist
 
 This file tracks verified implementation state for development workflows. The
-reader-facing progress and product scope remain in [`roadmap.md`](roadmap.md).
+reader-facing progress and product scope remain in [`roadmap.md`](../roadmap.md).
 
 ## Update rule
 
