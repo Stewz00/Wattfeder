@@ -54,6 +54,7 @@ func TestSimulatorSimulateDay(t *testing.T) {
 	}
 
 	wantBatteryEnergyKWh := cfg.StartingBatterySOCPercent / 100 * cfg.BatteryCapacityKWh
+	seenEventIDs := make(map[household.EventID]struct{}, len(events))
 	for i, event := range events {
 		wantTimestamp := cfg.Start.UTC().Add(time.Duration(i) * cfg.Interval)
 		if !event.Timestamp.Equal(wantTimestamp) {
@@ -62,6 +63,13 @@ func TestSimulatorSimulateDay(t *testing.T) {
 		if event.DeviceID != cfg.DeviceID {
 			t.Errorf("event %d device ID = %q, want %q", i, event.DeviceID, cfg.DeviceID)
 		}
+		if event.EventID == "" {
+			t.Errorf("event %d event ID is empty", i)
+		}
+		if _, exists := seenEventIDs[event.EventID]; exists {
+			t.Errorf("event %d reuses event ID %q", i, event.EventID)
+		}
+		seenEventIDs[event.EventID] = struct{}{}
 		if event.BatterySOCPercent < minimumBatterySOCPercent || event.BatterySOCPercent > maximumBatterySOCPercent {
 			t.Errorf("event %d battery SOC = %v, want within [0, 100]", i, event.BatterySOCPercent)
 		}
@@ -98,6 +106,21 @@ func TestSimulatorSimulateDay(t *testing.T) {
 	wantCurrentTime := cfg.Start.UTC().Add(24 * time.Hour)
 	if !sim.currentTime.Equal(wantCurrentTime) {
 		t.Errorf("currentTime after SimulateDay() = %v, want %v", sim.currentTime, wantCurrentTime)
+	}
+}
+
+func TestSimulatedEventIDIsStableForSourceEvent(t *testing.T) {
+	timestamp := time.Date(2026, time.August, 8, 12, 0, 0, 0, time.UTC)
+	want := simulatedEventID("home-001", timestamp)
+
+	if got := simulatedEventID("home-001", timestamp.In(time.FixedZone("CEST", 2*60*60))); got != want {
+		t.Errorf("simulatedEventID() = %q in another timezone, want stable ID %q", got, want)
+	}
+	if got := simulatedEventID("home-002", timestamp); got == want {
+		t.Errorf("simulatedEventID() = %q for another device, want a distinct ID", got)
+	}
+	if got := simulatedEventID("home-001", timestamp.Add(time.Minute)); got == want {
+		t.Errorf("simulatedEventID() = %q for another timestamp, want a distinct ID", got)
 	}
 }
 

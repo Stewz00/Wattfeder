@@ -118,4 +118,13 @@ func TestRunIsDeterministicAndMatchesExpectedResult(t *testing.T) {
 	if got := fmt.Sprint(logs[3]["decision"]); got != "discharge" {
 		t.Errorf("decision = %q, want discharge", got)
 	}
+	telemetryEventID := fmt.Sprint(logs[2]["event_id"])
+	decisionEventID := fmt.Sprint(logs[3]["event_id"])
+	if telemetryEventID == "" || decisionEventID != telemetryEventID {
+		t.Errorf(
+			"telemetry event ID = %q, decision event ID = %q, want one shared non-empty ID",
+			telemetryEventID,
+			decisionEventID,
+		)
+	}
 }

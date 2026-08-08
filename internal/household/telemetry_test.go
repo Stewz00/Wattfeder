@@ -13,6 +13,13 @@ func TestTelemetryValidate(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "valid telemetry"},
+		{name: "event ID is empty", modify: func(event *Telemetry) { event.EventID = "" }, wantErr: true},
+		{name: "event ID contains only whitespace", modify: func(event *Telemetry) {
+			event.EventID = " \t\n"
+		}, wantErr: true},
+		{name: "event ID has surrounding whitespace", modify: func(event *Telemetry) {
+			event.EventID = " event-001 "
+		}, wantErr: true},
 		{name: "timestamp before Unix epoch is valid", modify: func(event *Telemetry) {
 			event.Timestamp = time.Date(1960, time.January, 1, 0, 0, 0, 0, time.UTC)
 		}},
@@ -85,6 +92,7 @@ func TestTelemetryValidate(t *testing.T) {
 
 func validTelemetry() Telemetry {
 	return Telemetry{
+		EventID:           "event-001",
 		Timestamp:         time.Date(2026, time.August, 7, 12, 0, 0, 0, time.UTC),
 		DeviceID:          "home-001",
 		PVPowerKW:         4.8,

@@ -11,6 +11,7 @@ import (
 
 // Record is the telemetry event and resulting command for one simulation interval.
 type Record struct {
+	EventID           household.EventID  `json:"event_id"`
 	Timestamp         time.Time          `json:"timestamp"`
 	DeviceID          string             `json:"device_id"`
 	PVPowerKW         float64            `json:"pv_power_kw"`
@@ -51,6 +52,7 @@ func RunDay(ctx context.Context, sim simulation, policy household.Policy, write 
 		}
 
 		record := Record{
+			EventID:           event.EventID,
 			Timestamp:         event.Timestamp,
 			DeviceID:          event.DeviceID,
 			PVPowerKW:         event.PVPowerKW,

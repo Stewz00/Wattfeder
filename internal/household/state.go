@@ -7,6 +7,7 @@ import (
 
 // State contains the latest accepted telemetry values for one household device.
 type State struct {
+	LastEventID       EventID
 	DeviceID          string
 	UpdatedAt         time.Time
 	PVPowerKW         float64
@@ -25,6 +26,7 @@ func (s *State) ApplyTelemetry(event Telemetry) error {
 		return fmt.Errorf("telemetry device ID %q does not match state device ID %q", event.DeviceID, s.DeviceID)
 	}
 
+	s.LastEventID = event.EventID
 	s.DeviceID = event.DeviceID
 	s.UpdatedAt = event.Timestamp
 	s.PVPowerKW = event.PVPowerKW

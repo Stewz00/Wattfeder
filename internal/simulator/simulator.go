@@ -1,6 +1,7 @@
 package simulator
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"math"
@@ -118,6 +119,7 @@ func (s *Simulator) NextTelemetry() (household.Telemetry, error) {
 	}
 
 	event := household.Telemetry{
+		EventID:           simulatedEventID(s.cfg.DeviceID, s.currentTime),
 		Timestamp:         s.currentTime,
 		DeviceID:          s.cfg.DeviceID,
 		PVPowerKW:         s.pvPowerKW(s.currentTime, s.dailyPVFactor),
@@ -128,6 +130,12 @@ func (s *Simulator) NextTelemetry() (household.Telemetry, error) {
 	s.pendingTelemetry = true
 
 	return event, nil
+}
+
+func simulatedEventID(deviceID string, timestamp time.Time) household.EventID {
+	// A stable source key makes replaying the same simulated interval a duplicate after a restart
+	sourceKey := fmt.Sprintf("%d:%s:%s", len(deviceID), deviceID, timestamp.UTC().Format(time.RFC3339Nano))
+	return household.EventID(fmt.Sprintf("sim-%x", sha256.Sum256([]byte(sourceKey))))
 }
 
 // ApplyCommand evolves the battery over the pending telemetry interval.

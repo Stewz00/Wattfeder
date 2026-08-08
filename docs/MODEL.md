@@ -25,9 +25,11 @@ charge (SOC) means stored energy as a percentage of battery capacity.
 
 ## Outputs
 
-Each telemetry event contains its timestamp, device ID, PV power, load power,
-battery SOC, and electricity price. The policy adds a decision, command power,
-and reason.
+Each telemetry event contains a producer-assigned event ID, timestamp, device
+ID, PV power, load power, battery SOC, and electricity price. The policy adds a
+decision, command power, and reason. The simulator derives a stable event ID
+from the device ID and UTC timestamp so replaying the same interval retains its
+identity.
 
 Power uses kilowatts. Energy uses kilowatt-hours. The model treats sampled power
 as constant until the next event:

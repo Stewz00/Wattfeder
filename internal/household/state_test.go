@@ -35,6 +35,7 @@ func TestStateApplyTelemetryRejectsInvalidInitialization(t *testing.T) {
 func TestStateApplyTelemetryReplacesLatestValues(t *testing.T) {
 	first := validTelemetry()
 	second := Telemetry{
+		EventID:           "event-002",
 		Timestamp:         first.Timestamp.Add(15 * time.Minute),
 		DeviceID:          first.DeviceID,
 		PVPowerKW:         5.2,
@@ -95,6 +96,7 @@ func TestStateApplyTelemetryRejectsEventWithoutChangingState(t *testing.T) {
 
 func stateFromTelemetry(event Telemetry) State {
 	return State{
+		LastEventID:       event.EventID,
 		DeviceID:          event.DeviceID,
 		UpdatedAt:         event.Timestamp,
 		PVPowerKW:         event.PVPowerKW,

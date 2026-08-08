@@ -7,7 +7,13 @@ import (
 	"time"
 )
 
+// EventID is the producer-assigned identity of one telemetry event.
+type EventID string
+
+// Telemetry contains one household measurement at a point in time.
+// Power values use kW, battery state of charge uses percent, and electricity price uses EUR/kWh.
 type Telemetry struct {
+	EventID           EventID
 	Timestamp         time.Time
 	DeviceID          string
 	PVPowerKW         float64
@@ -18,6 +24,14 @@ type Telemetry struct {
 
 // Validate reports whether the telemetry contains a usable household measurement.
 func (t Telemetry) Validate() error {
+	eventID := string(t.EventID)
+	if strings.TrimSpace(eventID) == "" {
+		return errors.New("event ID must not be empty")
+	}
+	if strings.TrimSpace(eventID) != eventID {
+		return errors.New("event ID must not have surrounding whitespace")
+	}
+
 	if t.Timestamp.IsZero() {
 		return errors.New("timestamp must not be zero")
 	}

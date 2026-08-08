@@ -29,6 +29,9 @@ func TestRunEmitsJSONRecords(t *testing.T) {
 	if record.DeviceID != "home-001" {
 		t.Errorf("device ID = %q, want %q", record.DeviceID, "home-001")
 	}
+	if record.EventID == "" {
+		t.Error("event ID is empty")
+	}
 	if record.Decision == "" || record.Reason == "" {
 		t.Errorf("decision = %q, reason = %q, want both populated", record.Decision, record.Reason)
 	}

@@ -35,6 +35,9 @@ func TestRunDayConnectsTelemetryPolicyCommandAndOutput(t *testing.T) {
 	}
 
 	for i, record := range records {
+		if record.EventID == "" {
+			t.Errorf("record %d event ID is empty", i)
+		}
 		if record.DeviceID != cfg.DeviceID {
 			t.Errorf("record %d device ID = %q, want %q", i, record.DeviceID, cfg.DeviceID)
 		}
@@ -213,6 +216,7 @@ func (s *stubSimulation) ApplyCommand(household.Command) error {
 
 func validApplicationTelemetry() household.Telemetry {
 	return household.Telemetry{
+		EventID:           "event-001",
 		Timestamp:         time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC),
 		DeviceID:          "home-001",
 		LoadPowerKW:       1,

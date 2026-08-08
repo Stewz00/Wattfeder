@@ -29,6 +29,7 @@ type simulationStartedLog struct {
 
 type telemetryLog struct {
 	Event             string  `json:"event"`
+	EventID           string  `json:"event_id"`
 	Timestamp         string  `json:"timestamp"`
 	DeviceID          string  `json:"device_id"`
 	PVPowerKW         float64 `json:"pv_power_kw"`
@@ -39,6 +40,7 @@ type telemetryLog struct {
 
 type decisionLog struct {
 	Event          string             `json:"event"`
+	EventID        string             `json:"event_id"`
 	Timestamp      string             `json:"timestamp"`
 	Decision       household.Decision `json:"decision"`
 	CommandPowerKW float64            `json:"command_power_kw"`
@@ -91,6 +93,7 @@ func Run(ctx context.Context, scenario Scenario, output io.Writer) error {
 	err = application.RunDay(ctx, sim, policy, func(record application.Record) error {
 		if err := encoder.Encode(telemetryLog{
 			Event:             "telemetry_produced",
+			EventID:           string(record.EventID),
 			Timestamp:         record.Timestamp.Format(time.RFC3339),
 			DeviceID:          record.DeviceID,
 			PVPowerKW:         record.PVPowerKW,
@@ -102,6 +105,7 @@ func Run(ctx context.Context, scenario Scenario, output io.Writer) error {
 		}
 		if err := encoder.Encode(decisionLog{
 			Event:          "decision_produced",
+			EventID:        string(record.EventID),
 			Timestamp:      record.Timestamp.Format(time.RFC3339),
 			Decision:       record.Decision,
 			CommandPowerKW: record.CommandPowerKW,
