@@ -1,7 +1,5 @@
 # Demo
 
-## Purpose
-
 The demo runs one path through the current application. Fixed scenario values
 enter the simulator. Telemetry then reaches the state and policy code. The
 resulting command updates the battery for the next interval.
