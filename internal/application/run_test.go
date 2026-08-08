@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Stewz00/wattfeder/internal/household"
+	"github.com/Stewz00/wattfeder/internal/persistence"
 	"github.com/Stewz00/wattfeder/internal/simulator"
 )
 
@@ -162,6 +164,114 @@ func TestRunDayRejectsInvalidSimulatedTelemetry(t *testing.T) {
 	}
 }
 
+func TestRunPersistentDayCommitsBeforeApplyingCommand(t *testing.T) {
+	policy, err := household.NewPolicy(10, time.Hour)
+	if err != nil {
+		t.Fatalf("NewPolicy() error = %v", err)
+	}
+	sim := &stubSimulation{event: validApplicationTelemetry()}
+	repository := &stubRepository{commitStatus: persistence.CommitStored}
+	repository.beforeCommit = func() {
+		if sim.applyCalls != 0 {
+			t.Fatalf("ApplyCommand() calls before commit = %d, want 0", sim.applyCalls)
+		}
+	}
+
+	writeCalls := 0
+	if err := RunPersistentDay(t.Context(), sim, policy, repository, func(Record) error {
+		writeCalls++
+		return nil
+	}); err != nil {
+		t.Fatalf("RunPersistentDay() error = %v", err)
+	}
+
+	if repository.commitCalls != 1 {
+		t.Errorf("CommitProcessing() calls = %d, want 1", repository.commitCalls)
+	}
+	if sim.applyCalls != 1 {
+		t.Errorf("ApplyCommand() calls = %d, want 1", sim.applyCalls)
+	}
+	if writeCalls != 1 {
+		t.Errorf("write calls = %d, want 1", writeCalls)
+	}
+	if err := repository.result.Validate(); err != nil {
+		t.Errorf("committed processing result is invalid: %v", err)
+	}
+	if repository.result.Telemetry.Event.EventID != sim.event.EventID {
+		t.Errorf(
+			"committed event ID = %q, want %q",
+			repository.result.Telemetry.Event.EventID,
+			sim.event.EventID,
+		)
+	}
+}
+
+func TestRunPersistentDayStopsBeforeCommandWhenCommitFails(t *testing.T) {
+	policy, err := household.NewPolicy(10, time.Hour)
+	if err != nil {
+		t.Fatalf("NewPolicy() error = %v", err)
+	}
+	wantErr := errors.New("persistence unavailable")
+	sim := &stubSimulation{event: validApplicationTelemetry()}
+	repository := &stubRepository{commitErr: wantErr}
+
+	writeCalls := 0
+	err = RunPersistentDay(t.Context(), sim, policy, repository, func(Record) error {
+		writeCalls++
+		return nil
+	})
+	if !errors.Is(err, wantErr) {
+		t.Errorf("RunPersistentDay() error = %v, want wrapped persistence error %v", err, wantErr)
+	}
+	if sim.applyCalls != 0 {
+		t.Errorf("ApplyCommand() calls = %d, want 0 after persistence failure", sim.applyCalls)
+	}
+	if writeCalls != 0 {
+		t.Errorf("write calls = %d, want 0 after persistence failure", writeCalls)
+	}
+}
+
+func TestRunPersistentDayStopsWithoutRedeliveringDuplicate(t *testing.T) {
+	policy, err := household.NewPolicy(10, time.Hour)
+	if err != nil {
+		t.Fatalf("NewPolicy() error = %v", err)
+	}
+	sim := &stubSimulation{event: validApplicationTelemetry()}
+	repository := &stubRepository{commitStatus: persistence.CommitDuplicate}
+
+	writeCalls := 0
+	if err := RunPersistentDay(t.Context(), sim, policy, repository, func(Record) error {
+		writeCalls++
+		return nil
+	}); err != nil {
+		t.Fatalf("RunPersistentDay() error = %v", err)
+	}
+	if sim.applyCalls != 0 {
+		t.Errorf("ApplyCommand() calls = %d, want 0 for duplicate event", sim.applyCalls)
+	}
+	if writeCalls != 0 {
+		t.Errorf("write calls = %d, want 0 for duplicate event", writeCalls)
+	}
+}
+
+func TestRunPersistentDayRejectsNilRepository(t *testing.T) {
+	policy, err := household.NewPolicy(10, time.Hour)
+	if err != nil {
+		t.Fatalf("NewPolicy() error = %v", err)
+	}
+
+	err = RunPersistentDay(
+		t.Context(),
+		&stubSimulation{event: validApplicationTelemetry()},
+		policy,
+		nil,
+		func(Record) error { return nil },
+	)
+	if err == nil || !strings.Contains(err.Error(), "repository must not be nil") {
+		t.Errorf("RunPersistentDay() error = %v, want nil-repository error", err)
+	}
+}
+
 func newTestSimulator(t *testing.T) (*simulator.Simulator, simulator.Config) {
 	t.Helper()
 
@@ -197,9 +307,10 @@ func newTestPolicy(t *testing.T, cfg simulator.Config) household.Policy {
 
 // stubSimulation lets tests force results and failures that the real simulator cannot produce on demand
 type stubSimulation struct {
-	event    household.Telemetry
-	nextErr  error
-	applyErr error
+	event      household.Telemetry
+	nextErr    error
+	applyErr   error
+	applyCalls int
 }
 
 func (s *stubSimulation) IntervalsPerDay() int {
@@ -211,7 +322,36 @@ func (s *stubSimulation) NextTelemetry() (household.Telemetry, error) {
 }
 
 func (s *stubSimulation) ApplyCommand(household.Command) error {
+	s.applyCalls++
 	return s.applyErr
+}
+
+type stubRepository struct {
+	commitStatus persistence.CommitStatus
+	commitErr    error
+	commitCalls  int
+	result       persistence.ProcessingResult
+	beforeCommit func()
+}
+
+func (r *stubRepository) Migrate(context.Context) error {
+	return nil
+}
+
+func (r *stubRepository) LatestState(context.Context, string) (household.State, bool, error) {
+	return household.State{}, false, nil
+}
+
+func (r *stubRepository) CommitProcessing(
+	_ context.Context,
+	result persistence.ProcessingResult,
+) (persistence.CommitStatus, error) {
+	r.commitCalls++
+	r.result = result
+	if r.beforeCommit != nil {
+		r.beforeCommit()
+	}
+	return r.commitStatus, r.commitErr
 }
 
 func validApplicationTelemetry() household.Telemetry {

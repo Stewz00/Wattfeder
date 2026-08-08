@@ -13,14 +13,14 @@ possible directions rather than fixed commitments.
 | Milestone | Status |
 | --- | --- |
 | v0.1 — Single Household Simulation | Complete |
-| v0.2 — Persistent Device State | Current |
-| v0.3–v0.8 | Planned |
+| v0.2 — Persistent Device State | Complete |
+| v0.3 — Unreliable Telemetry | Current |
+| v0.4–v0.8 | Planned |
 
-The v0.1 application now runs one deterministic household simulation from the
-CLI, validates and applies telemetry, produces battery commands, applies those
-commands to later battery state, emits structured JSON records, and shuts down
-gracefully. The next milestone adds persistent device state and decision
-history.
+The application now persists telemetry, commands, and latest device state in
+SQLite, restores battery state after restart, rejects duplicate durable events,
+and commits each processing result before applying its command. The current
+milestone defines behavior for unreliable telemetry.
 
 ---
 
@@ -121,6 +121,9 @@ Command
 
 ## v0.2 — Persistent Device State
 
+**Status:** Complete. SQLite persistence, restart restore, atomic processing,
+and duplicate protection are implemented and verified.
+
 ### Goal
 
 Preserve device state and decision history across process restarts.
@@ -153,9 +156,22 @@ Preserve device state and decision history across process restarts.
 * Database setup and migrations are reproducible.
 * Persistence behavior is covered by integration tests.
 
+### Completion evidence
+
+* The CLI owns a configurable SQLite database path, applies ordered migrations,
+  and restores the latest battery SOC before constructing the simulator.
+* Telemetry, its command, and latest state commit atomically before the command
+  advances the simulator.
+* Duplicate event IDs change no records and stop without redelivering a command.
+* Application and CLI tests cover restart restore, duplicate processing,
+  persistence-failure ordering, migration, rollback, and traceability.
+
 ---
 
 ## v0.3 — Unreliable Telemetry
+
+**Status:** Current. Failure semantics and deterministic fault cases are the
+next implementation focus.
 
 ### Goal
 
@@ -559,17 +575,19 @@ contribute to its exit criteria should normally be postponed.
 The current focus is:
 
 ```text
-v0.2 — Persistent Device State
+v0.3 — Unreliable Telemetry
 ```
 
 The next implementation sequence is:
 
-1. Define event and command identity before choosing storage representations.
-2. Specify stored telemetry, command, and latest-state records.
-3. Decide the atomic processing and duplicate-handling boundary.
-4. Add reproducible SQLite migrations and a repository layer.
-5. Restore latest device state during startup.
-6. Prove restart recovery and duplicate handling with integration tests.
+1. Define accept, reject, history-only, and state-update behavior for each
+   unreliable telemetry case.
+2. Reject or isolate out-of-order, delayed, missing, and invalid measurements
+   without corrupting the latest valid state.
+3. Add deterministic simulator fault injection for every supported failure.
+4. Introduce online, stale, offline, and invalid device health states.
+5. Make failure decisions observable with structured reasons.
+6. Cover every supported failure mode with automated tests.
 
 Kubernetes, a frontend, real hardware, and an external message broker remain
 outside the current milestone.

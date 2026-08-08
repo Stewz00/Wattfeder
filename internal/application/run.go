@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Stewz00/wattfeder/internal/household"
+	"github.com/Stewz00/wattfeder/internal/persistence"
 )
 
 // Record is the telemetry event and resulting command for one simulation interval.
@@ -31,6 +32,31 @@ type simulation interface {
 
 // RunDay processes one simulated day and writes one record for each telemetry event.
 func RunDay(ctx context.Context, sim simulation, policy household.Policy, write func(Record) error) error {
+	return runDay(ctx, sim, policy, nil, write)
+}
+
+// RunPersistentDay processes one simulated day and commits each result before applying its command.
+func RunPersistentDay(
+	ctx context.Context,
+	sim simulation,
+	policy household.Policy,
+	repository persistence.Repository,
+	write func(Record) error,
+) error {
+	if repository == nil {
+		return fmt.Errorf("persistence repository must not be nil")
+	}
+
+	return runDay(ctx, sim, policy, repository, write)
+}
+
+func runDay(
+	ctx context.Context,
+	sim simulation,
+	policy household.Policy,
+	repository persistence.Repository,
+	write func(Record) error,
+) error {
 	var state household.State
 
 	for range sim.IntervalsPerDay() {
@@ -47,6 +73,30 @@ func RunDay(ctx context.Context, sim simulation, policy household.Policy, write 
 		}
 
 		command := policy.Decide(state)
+		if repository != nil {
+			status, err := repository.CommitProcessing(ctx, persistence.ProcessingResult{
+				Telemetry: persistence.TelemetryRecord{
+					Event:      event,
+					ReceivedAt: time.Now().UTC(),
+				},
+				LatestState: state,
+				Command: persistence.CommandRecord{
+					EventID:   event.EventID,
+					Command:   command,
+					CreatedAt: time.Now().UTC(),
+				},
+			})
+			if err != nil {
+				return fmt.Errorf("commit processing result: %w", err)
+			}
+			switch status {
+			case persistence.CommitStored:
+			case persistence.CommitDuplicate:
+				return nil
+			default:
+				return fmt.Errorf("commit processing result: unexpected status %d", status)
+			}
+		}
 		if err := sim.ApplyCommand(command); err != nil {
 			return fmt.Errorf("apply control command: %w", err)
 		}

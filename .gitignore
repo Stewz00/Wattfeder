@@ -27,6 +27,12 @@ go.work.sum
 # env file
 .env
 
+# Default local application state
+/wattfeder.db
+/wattfeder.db-journal
+/wattfeder.db-shm
+/wattfeder.db-wal
+
 # Editor/IDE
 # .idea/
 # .vscode/

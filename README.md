@@ -6,9 +6,8 @@ electricity price, and battery telemetry for one 24-hour period, then chooses a
 charge, discharge, or idle command for each interval.
 
 The current version runs one household locally, validates telemetry, evolves
-battery state, and emits newline-delimited JSON. A SQLite adapter can migrate
-and atomically store processing records, but the CLI still keeps active state in
-memory and does not open a database yet.
+battery state, persists telemetry and commands in SQLite, restores the latest
+battery state after restart, and emits newline-delimited JSON.
 
 ## Run
 
@@ -21,7 +20,9 @@ make run    # Run the configurable 24-hour simulation
 make check  # Format, analyze, test, and build the project
 ```
 
-Run `go run ./cmd/wattfeder -help` to list the available simulation flags.
+Run `go run ./cmd/wattfeder -help` to list the available simulation and database
+flags. The normal application stores state in `wattfeder.db` by default; the
+fixed demo remains non-persistent.
 
 ## Model boundaries
 

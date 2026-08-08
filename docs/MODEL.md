@@ -18,7 +18,7 @@ charge (SOC) means stored energy as a percentage of battery capacity.
 | Seed | Integer | Selects repeatable daily PV, load, and price scale factors. |
 | Device ID | Text | Identifies the simulated household. |
 | Battery capacity | Kilowatt-hours | Converts stored energy to battery SOC. |
-| Starting battery SOC | Percent | Sets stored energy at the first event. |
+| Starting battery SOC | Percent | Sets stored energy at the first event when no persisted device state exists. |
 | PV peak power | Kilowatts | Sets the upper bound of the solar profile. |
 | Base load power | Kilowatts | Sets the scale of household electricity use. |
 | Base price | Euros per kilowatt-hour | Sets the scale of the electricity price. |
@@ -61,7 +61,9 @@ Household load stays above zero. It has a morning peak and a larger evening
 peak. Electricity price has a midday dip and morning and evening peaks.
 
 The seed selects one scale factor for each profile for the full day. The same
-configuration and seed produce the same telemetry.
+configuration and seed produce the same profile values. A persisted battery SOC
+overrides the configured starting SOC when the normal CLI restarts for the same
+device.
 
 The battery changes from the signed command power:
 

@@ -65,7 +65,7 @@ visible instead of treating them as complete.
   failures.
 - [x] Document setup, execution, assumptions, and example output in the reader guides.
 
-## Current milestone: v0.2 — Persistent Device State
+## Completed milestone: v0.2 — Persistent Device State
 
 ### Completed persistence work
 
@@ -79,11 +79,9 @@ visible instead of treating them as complete.
 - [x] Implement the SQLite schema and ordered migrations.
 - [x] Implement the SQLite repository and atomic processing transaction.
 - [x] Cover migration, restart, duplicate-event, rollback, and traceability behavior with integration tests.
-
-### Remaining persistence work
-
-- [ ] Restore the latest state during application startup.
-- [ ] Connect persistence to event processing before applying simulator commands.
+- [x] Restore the latest state during application startup.
+- [x] Connect persistence to event processing before applying simulator commands.
+- [x] Cover startup restore, duplicate processing, and persistence-failure ordering through the application and CLI.
 
 ### Current behavior and gaps
 
@@ -106,11 +104,13 @@ Discharge power is limited when necessary so the interval ends at the reserve
 instead of crossing it. Other conditions produce an idle command. Every command
 has a human-readable reason and a finite, non-negative power magnitude.
 
-The CLI connects simulator, state update, policy, command application, and
-newline-delimited JSON output for one configurable 24-hour simulation. It
+The CLI connects simulator, state update, policy, durable processing, command
+application, and newline-delimited JSON output for one configurable 24-hour
+simulation. It opens `wattfeder.db` by default or a path selected with
+`-database`, applies pending migrations, and restores the latest persisted
+battery SOC for the configured device before constructing the simulator. It
 rejects invalid arguments and configuration, provides flag help, and treats
-SIGINT or SIGTERM cancellation as a graceful shutdown. State and output remain
-process-local because the CLI does not open or use the SQLite adapter yet.
+SIGINT or SIGTERM cancellation as a graceful shutdown.
 
 The CLI also loads a deterministic JSON demo scenario when `-scenario` is used.
 Scenario mode rejects additional configuration flags, validates the scenario
@@ -131,11 +131,13 @@ records ordered versions. The schema stores telemetry and command history plus
 one latest-state row per device, with event-ID foreign keys and domain checks.
 The repository validates each processing result before atomically inserting its
 telemetry and command and replacing latest state. A duplicate telemetry event
-rolls back without changing any record. Latest state survives closing and
-reopening the database. Migration, restart, duplicate, rollback, and
-traceability behavior is covered by integration tests. No database file is
-created unless a caller opens a path; startup restore and application
-integration do not exist yet.
+rolls back without changing any record. The application commits each result
+before applying the simulator command. A failure stops before command
+application and output; a duplicate stops without redelivering its command.
+Latest state survives closing and reopening the database, and its battery SOC
+seeds the next run for that device. Migration, restart, duplicate, rollback,
+traceability, startup restore, and failure ordering are covered by automated
+tests. The fixed demo remains in-memory and creates no persistent state.
 
 ### Decisions to preserve
 
@@ -209,6 +211,10 @@ integration do not exist yet.
   record. A persistence error leaves all supplied records non-durable.
 - The persistence adapter owns ordered migrations; the command-line package
   does not select migrations or contain SQL.
+- Normal CLI startup opens `wattfeder.db` by default, applies every pending
+  migration, and then restores state for the configured device.
+- A restored battery SOC overrides the configured starting SOC. Other restored
+  measurements are replaced by the first new telemetry event.
 - SQLite migrations run transactionally, must remain contiguous from version 1,
   and reject renamed or newer-than-supported migration history.
 - SQLite enforces event-ID relationships and domain constraints in addition to
@@ -218,18 +224,21 @@ integration do not exist yet.
 - Persistence must commit before a command advances the simulator or another
   device. Crash recovery between database commit and command delivery remains
   undefined.
+- A duplicate durable event ends the current run without applying or emitting
+  its command again.
 
 ### Next task
 
-Restore the latest device state during application startup, then commit each
-processing result before applying its simulator command. Cover startup restore,
-duplicate processing, and persistence-failure ordering through the application
-and CLI boundaries.
+Define explicit acceptance and state-update behavior for out-of-order, delayed,
+missing, and invalid telemetry, then add deterministic simulator fault cases
+and device health states for v0.3.
+
+## Current milestone
+
+- [ ] v0.3 — Unreliable Telemetry
 
 ## Later milestones
 
-- [ ] v0.2 — Persistent Device State
-- [ ] v0.3 — Unreliable Telemetry
 - [ ] v0.4 — Multi-Device Processing
 - [ ] v0.5 — Observability and Local Operations
 - [ ] v0.6 — Pluggable Telemetry Sources

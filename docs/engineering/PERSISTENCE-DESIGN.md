@@ -2,10 +2,9 @@
 
 ## Status
 
-The persistence records, repository contract, SQLite adapter, and initial
-migration are implemented. The current application still uses in-memory state;
-startup restore and durable event-processing integration are the next
-implementation step.
+The persistence records, repository contract, SQLite adapter, initial
+migration, startup restore, and durable event-processing integration are
+implemented.
 
 ## Event identity
 
@@ -48,10 +47,11 @@ event durable. A storage adapter must perform these changes in one transaction:
 4. Commit all three changes.
 
 The event is processed only after the transaction commits. If its event ID
-already exists, the operation returns `CommitDuplicate` and changes nothing. If
-validation, a database write, or commit fails, the adapter returns an error and
-rolls back every change. The caller can then retry the same event ID without
-creating another command.
+already exists, the operation returns `CommitDuplicate` and changes nothing.
+The application stops that run without applying or emitting the duplicate
+command. If validation, a database write, or commit fails, the adapter returns
+an error and rolls back every change. The caller can then retry the same event
+ID without creating another durable command.
 
 The SQLite integration must persist successfully before applying a command to
 the simulator or another device. This prevents a persistence failure from
@@ -85,5 +85,8 @@ records.
   to an external battery is not yet defined.
 - Event IDs are producer-owned, case-sensitive, and cannot have surrounding
   whitespace. Wattfeder validates them but does not rewrite them.
-- The adapter does not create a database file until a caller opens a configured
-  path; the command-line application does not select that path yet.
+- The normal command-line application opens `wattfeder.db` by default and
+  accepts another path through `-database`; scenario mode remains in-memory.
+- Startup restores the latest persisted battery SOC for the configured device.
+  Other latest-state measurements are replaced when the simulator emits its
+  first new telemetry event.

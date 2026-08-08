@@ -16,6 +16,7 @@ import (
 	"github.com/Stewz00/wattfeder/internal/application"
 	"github.com/Stewz00/wattfeder/internal/demo"
 	"github.com/Stewz00/wattfeder/internal/household"
+	"github.com/Stewz00/wattfeder/internal/persistence/sqlite"
 	"github.com/Stewz00/wattfeder/internal/simulator"
 )
 
@@ -43,6 +44,7 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	pvPeakPower := flags.Float64("pv-peak-power-kw", 6, "PV peak power in kW")
 	loadBasePower := flags.Float64("load-base-power-kw", 0.4, "household base power in kW")
 	priceBase := flags.Float64("price-base-eur-kwh", 0.30, "base electricity price in EUR/kWh")
+	databasePath := flags.String("database", "wattfeder.db", "path to the SQLite database")
 	scenarioPath := flags.String("scenario", "", "path to a deterministic demo scenario in JSON format")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -93,21 +95,47 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 		LoadBasePowerKW:           *loadBasePower,
 		PriceBaseEURPerKWh:        *priceBase,
 	}
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("configure simulator: %w", err)
+	}
 	policy, err := household.NewPolicy(cfg.BatteryCapacityKWh, cfg.Interval)
 	if err != nil {
 		return fmt.Errorf("configure control policy: %w", err)
 	}
+	repository, err := sqlite.Open(*databasePath)
+	if err != nil {
+		return fmt.Errorf("open persistence: %w", err)
+	}
+	if err := repository.Migrate(ctx); err != nil {
+		return closeRepository(repository, fmt.Errorf("migrate persistence: %w", err))
+	}
+	restoredState, found, err := repository.LatestState(ctx, cfg.DeviceID)
+	if err != nil {
+		return closeRepository(repository, fmt.Errorf("restore latest state: %w", err))
+	}
+	if found {
+		cfg.StartingBatterySOCPercent = restoredState.BatterySOCPercent
+	}
+
 	sim, err := simulator.New(cfg)
 	if err != nil {
-		return err
+		return closeRepository(repository, err)
 	}
 
 	encoder := json.NewEncoder(output)
-	if err := application.RunDay(ctx, sim, policy, func(record application.Record) error {
+	runErr := application.RunPersistentDay(ctx, sim, policy, repository, func(record application.Record) error {
 		return encoder.Encode(record)
-	}); err != nil {
-		return fmt.Errorf("run simulation: %w", err)
+	})
+	if runErr != nil {
+		runErr = fmt.Errorf("run simulation: %w", runErr)
 	}
 
-	return nil
+	return closeRepository(repository, runErr)
+}
+
+func closeRepository(repository *sqlite.Repository, priorErr error) error {
+	if err := repository.Close(); err != nil {
+		return errors.Join(priorErr, fmt.Errorf("close persistence: %w", err))
+	}
+	return priorErr
 }
