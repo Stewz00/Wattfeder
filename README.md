@@ -1,64 +1,40 @@
 # Wattfeder
 
-Wattfeder simulates one household with solar panels and a battery. It explores
-how changing production, electricity use, and price affect simple battery
-decisions. The current program runs locally and keeps all state in memory.
-The fixed demo shows how telemetry becomes battery decisions. The documents
-below explain setup, runtime flow, and model limits.
+Wattfeder is a deterministic Go simulation of household energy flows and
+battery control. It generates photovoltaic production, household load,
+electricity price, and battery telemetry for one 24-hour period, then chooses a
+charge, discharge, or idle command for each interval.
 
-## What Wattfeder does
+The current version runs one household locally, validates telemetry, evolves
+battery state, and emits newline-delimited JSON. State remains in memory;
+SQLite persistence is the next milestone.
 
-The simulator produces a fixed 24-hour household timeline. Each telemetry event
-contains solar production, household load, battery state, and electricity price.
-A control policy chooses whether to charge, discharge, or leave the battery idle.
+## Run
 
-## Current status
-
-| Status | Scope |
-| --- | --- |
-| Implemented | One deterministic household simulation, stable event identity, telemetry validation, battery state updates, control decisions, JSON output, and graceful shutdown. |
-| Partially implemented | Persistence records and the atomic repository boundary are defined, but the latest state still exists only in memory. |
-| Planned | SQLite storage, failure simulation, multiple households, network inputs, and operational metrics. |
-
-The [roadmap](docs/roadmap.md) separates completed work from planned milestones.
-
-## Demo
+Wattfeder requires Go 1.26.5 and has no third-party Go dependencies.
 
 ```bash
-make demo
+make demo   # Run the fixed four-step scenario
+make run    # Run the configurable 24-hour simulation
+make check  # Format, analyze, test, and build the project
 ```
 
-This command loads a fixed scenario and runs four six-hour intervals. The output
-shows each telemetry event, each battery decision, and a final result check. See
-the [demo guide](docs/DEMO.md) for the scenario and expected output.
+Run `go run ./cmd/wattfeder -help` to list the available simulation flags.
 
-## Architecture snapshot
+## Model boundaries
 
-```mermaid
-flowchart LR
-    Config["CLI flags or scenario"] --> Simulator["Household simulator"]
-    Simulator --> Flow["Application flow"]
-    Flow --> State["Latest in-memory state"]
-    State --> Policy["Battery policy"]
-    Policy --> Simulator
-    Flow --> Output["JSON output"]
-```
-
-See [Architecture](docs/ARCHITECTURE.md) for component responsibilities and data
-flow.
-
-## Model assumptions
-
-The profiles are synthetic. They are not forecasts for a real household. The
-battery has perfect efficiency and no power limit. The grid supplies unmet load
-and receives unused solar production.
-
-See [Model assumptions](docs/MODEL.md) for units, rules, and limitations.
+Profiles are synthetic and deterministic, not forecasts. The battery model
+assumes perfect efficiency and no power limit; the grid supplies unmet demand
+and absorbs unused photovoltaic generation.
 
 ## Documentation
 
-- [Development setup](docs/SETUP.md)
+- [Setup](docs/SETUP.md)
 - [Demo](docs/DEMO.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [Model assumptions](docs/MODEL.md)
+- [Model](docs/MODEL.md)
 - [Roadmap](docs/roadmap.md)
+
+## License
+
+Wattfeder is available under the [MIT License](LICENSE).
