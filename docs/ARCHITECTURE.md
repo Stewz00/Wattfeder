@@ -43,9 +43,16 @@ writes separate progress records so each step is visible.
 
 ## Storage
 
-There is no persistent storage. The simulator clock, battery state, and latest
-telemetry remain in memory. JSON output goes to standard output. Process exit
-removes all state.
+There is no persistent storage adapter yet. The simulator clock, battery state,
+and latest telemetry remain in memory. JSON output goes to standard output.
+Process exit removes all state.
+
+The v0.2 persistence contract now defines telemetry history, command history,
+latest device state, migration ownership, and one atomic commit operation. Event
+IDs link all three durable records and let an adapter reject duplicate
+processing. See the [persistence design](engineering/PERSISTENCE-DESIGN.md) for
+the transaction and failure semantics that the SQLite implementation must
+preserve.
 
 ## Configuration
 
@@ -69,7 +76,8 @@ cancel the command without reporting an execution failure.
 ## Current limitations
 
 - One process handles one household.
-- There is no database, queue, network API, or external telemetry source.
+- There is no database implementation, queue, network API, or external
+  telemetry source.
 - The state component accepts one device ID per run.
 - There are no retries because the current flow has no external operations.
 - Health endpoints and runtime metrics are not implemented.

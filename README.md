@@ -16,9 +16,9 @@ A control policy chooses whether to charge, discharge, or leave the battery idle
 
 | Status | Scope |
 | --- | --- |
-| Implemented | One deterministic household simulation, telemetry validation, battery state updates, control decisions, JSON output, and graceful shutdown. |
-| Partially implemented | Telemetry passes through the simulator, state, and policy code, but the latest state exists only in memory. |
-| Planned | Persistent storage, failure simulation, multiple households, network inputs, and operational metrics. |
+| Implemented | One deterministic household simulation, stable event identity, telemetry validation, battery state updates, control decisions, JSON output, and graceful shutdown. |
+| Partially implemented | Persistence records and the atomic repository boundary are defined, but the latest state still exists only in memory. |
+| Planned | SQLite storage, failure simulation, multiple households, network inputs, and operational metrics. |
 
 The [roadmap](docs/roadmap.md) separates completed work from planned milestones.
 

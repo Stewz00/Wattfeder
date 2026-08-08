@@ -65,24 +65,46 @@ visible instead of treating them as complete.
   failures.
 - [x] Document setup, execution, assumptions, and example output in the reader guides.
 
+## Current milestone: v0.2 — Persistent Device State
+
+### Completed persistence groundwork
+
+- [x] Assign every simulated telemetry event a stable producer-owned event ID.
+- [x] Propagate event IDs through latest state, application output, and demo output.
+- [x] Define telemetry, command, and latest-state records for durable processing.
+- [x] Validate UTC timestamps and consistency across one durable processing result.
+- [x] Define migration ownership, latest-state lookup, and one atomic repository commit operation.
+- [x] Define duplicate commits as no-op results and persistence failures as all-or-nothing operations.
+- [x] Document event identity, transaction boundaries, migration ownership, and current delivery limits.
+
+### Remaining persistence work
+
+- [ ] Implement the SQLite schema and ordered migrations.
+- [ ] Implement the SQLite repository and atomic processing transaction.
+- [ ] Restore the latest state during application startup.
+- [ ] Connect persistence to event processing before applying simulator commands.
+- [ ] Cover migration, restart, duplicate-event, rollback, and traceability behavior with integration tests.
+
 ### Current behavior and gaps
 
-The simulator emits timestamp, device ID, battery SOC, and seeded photovoltaic,
-household load, and electricity price profiles. It yields one telemetry event
-at a time and requires one valid command before advancing the clock and battery
-state. Invalid commands leave the event pending so callers can recover. The
-standalone daily simulation follows uncontrolled PV-minus-load power, while the
-application applies policy commands to the next interval's SOC. Battery energy
-remains between empty and full and carries across repeated daily simulations.
+The simulator emits a stable event ID, timestamp, device ID, battery SOC, and
+seeded photovoltaic, household load, and electricity price profiles. It yields
+one telemetry event at a time and requires one valid command before advancing
+the clock and battery state. Invalid commands leave the event pending so callers
+can recover. The standalone daily simulation follows uncontrolled PV-minus-load
+power, while the application applies policy commands to the next interval's SOC.
+Battery energy remains between empty and full and carries across repeated daily
+simulations.
 
-Valid telemetry initializes and replaces the latest in-memory state for one
-device. Invalid telemetry and events from another device are rejected without
-changing that state. The deterministic policy charges from a PV surplus while
-the battery is below full, and discharges a load deficit only when electricity
-costs at least EUR 0.30/kWh and battery SOC is above the 20% reserve. Discharge
-power is limited when necessary so the interval ends at the reserve instead of
-crossing it. Other conditions produce an idle command. Every command has a
-human-readable reason and a finite, non-negative power magnitude.
+Valid telemetry requires a non-blank producer-owned event ID and initializes or
+replaces the latest in-memory state for one device. The latest state retains the
+source event ID. Invalid telemetry and events from another device are rejected
+without changing that state. The deterministic policy charges from a PV surplus
+while the battery is below full, and discharges a load deficit only when
+electricity costs at least EUR 0.30/kWh and battery SOC is above the 20% reserve.
+Discharge power is limited when necessary so the interval ends at the reserve
+instead of crossing it. Other conditions produce an idle command. Every command
+has a human-readable reason and a finite, non-negative power magnitude.
 
 The CLI connects simulator, state update, policy, command application, and
 newline-delimited JSON output for one configurable 24-hour simulation. It
@@ -92,14 +114,29 @@ process-local; persistence begins in v0.2.
 
 The CLI also loads a deterministic JSON demo scenario when `-scenario` is used.
 Scenario mode rejects additional configuration flags, validates the scenario
-against the same fixed 24-hour model, emits separate progress records, and
-reports whether the produced decisions match the expected sequence. `make demo`
-runs the repository's four-interval example without creating persistent state.
+against the same fixed 24-hour model, emits separate progress records with a
+shared event ID for each telemetry-decision pair, and reports whether the
+produced decisions match the expected sequence. `make demo` runs the
+repository's four-interval example without creating persistent state.
+
+The persistence package defines database-independent telemetry, command, and
+latest-state records. One validated processing result binds those records by
+event ID and requires UTC source, receive, and command-creation timestamps. The
+repository contract assigns migrations to the adapter, exposes latest-state
+restore, and requires telemetry, command, and latest state to commit atomically.
+A duplicate event ID changes nothing. No SQLite adapter, schema, database file,
+startup restore, or application integration exists yet.
 
 ### Decisions to preserve
 
 - A simulated day is exactly 24 hours from an arbitrary configured start time.
 - Timestamps are normalized to UTC.
+- Event IDs are assigned by the telemetry producer before validation and remain
+  stable when the same source event is retried.
+- Simulated event IDs derive from device ID and UTC timestamp, so the same
+  simulated interval retains its identity across time zones and replay.
+- Event IDs are opaque, case-sensitive, non-blank, and cannot contain
+  surrounding whitespace.
 - The timeline includes its start and excludes its end.
 - The interval must divide 24 hours evenly, preventing a partial final event.
 - A simulator owns its clock and random stream; separate instances cannot alter
@@ -121,7 +158,8 @@ runs the repository's four-interval example without creating persistent state.
   peak, and higher evening peak.
 - One seeded factor scales each profile for the whole simulated day, preserving
   its daily shape.
-- Valid telemetry requires a non-zero timestamp and a non-blank device ID.
+- Valid telemetry requires a non-blank event ID, a non-zero timestamp, and a
+  non-blank device ID.
 - Telemetry power measurements must be finite and non-negative, battery SOC
   must be finite and between 0% and 100%, and electricity price must be finite
   and greater than zero.
@@ -155,12 +193,21 @@ runs the repository's four-interval example without creating persistent state.
 - Scenario mode is mutually exclusive with individual CLI configuration flags.
 - SIGINT and SIGTERM cancel the application without reporting an execution
   failure.
+- Durable telemetry, its command, and latest device state form one atomic
+  processing result linked by event ID.
+- A duplicate durable event returns a duplicate status without changing any
+  record. A persistence error leaves all supplied records non-durable.
+- The persistence adapter owns ordered migrations; the command-line package
+  does not select migrations or contain SQL.
+- Persistence must commit before a command advances the simulator or another
+  device. Crash recovery between database commit and command delivery remains
+  undefined.
 
 ### Next task
 
-Begin v0.2 by defining persistent event identity, stored telemetry and command
-records, migration ownership, and the atomic processing boundary before adding
-SQLite-backed state.
+Implement the SQLite schema, ordered migrations, and repository transaction for
+the verified persistence contract, including duplicate-event and rollback
+integration tests.
 
 ## Later milestones
 
