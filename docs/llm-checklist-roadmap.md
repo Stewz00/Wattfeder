@@ -45,6 +45,9 @@ visible instead of treating them as complete.
 ### Application behavior
 
 - [x] Run the simulation from `go run ./cmd/wattfeder`.
+- [x] Run a fixed JSON demo scenario with `make demo`.
+- [x] Compare demo decisions with the expected sequence and report structured
+  progress and completion records.
 - [x] Emit structured, human-readable telemetry and decisions.
 - [x] Handle graceful shutdown.
 
@@ -58,8 +61,9 @@ visible instead of treating them as complete.
 - [x] Cover command validation, simulator command sequencing, application flow
   and failure paths, and cancellation.
 - [x] Cover CLI help, argument validation, configuration mapping, deterministic
-  output, cancellation, and output failures.
-- [x] Document setup, execution, assumptions, and example output in the README.
+  output, scenario execution and flag conflicts, cancellation, and output
+  failures.
+- [x] Document setup, execution, assumptions, and example output in the reader guides.
 
 ### Current behavior and gaps
 
@@ -85,6 +89,12 @@ newline-delimited JSON output for one configurable 24-hour simulation. It
 rejects invalid arguments and configuration, provides flag help, and treats
 SIGINT or SIGTERM cancellation as a graceful shutdown. State and output remain
 process-local; persistence begins in v0.2.
+
+The CLI also loads a deterministic JSON demo scenario when `-scenario` is used.
+Scenario mode rejects additional configuration flags, validates the scenario
+against the same fixed 24-hour model, emits separate progress records, and
+reports whether the produced decisions match the expected sequence. `make demo`
+runs the repository's four-interval example without creating persistent state.
 
 ### Decisions to preserve
 
@@ -140,6 +150,9 @@ process-local; persistence begins in v0.2.
   applicable policy threshold.
 - The runnable application emits one newline-delimited JSON record per interval
   for exactly one simulated day.
+- Demo scenarios use the same fixed 24-hour simulation duration and provide one
+  expected decision per interval.
+- Scenario mode is mutually exclusive with individual CLI configuration flags.
 - SIGINT and SIGTERM cancel the application without reporting an execution
   failure.
 

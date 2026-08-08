@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Stewz00/wattfeder/internal/application"
+	"github.com/Stewz00/wattfeder/internal/demo"
 	"github.com/Stewz00/wattfeder/internal/household"
 	"github.com/Stewz00/wattfeder/internal/simulator"
 )
@@ -42,6 +43,7 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	pvPeakPower := flags.Float64("pv-peak-power-kw", 6, "PV peak power in kW")
 	loadBasePower := flags.Float64("load-base-power-kw", 0.4, "household base power in kW")
 	priceBase := flags.Float64("price-base-eur-kwh", 0.30, "base electricity price in EUR/kWh")
+	scenarioPath := flags.String("scenario", "", "path to a deterministic demo scenario in JSON format")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprintf(output, "Usage: %s [options]\n\nOptions:\n", flags.Name())
@@ -53,6 +55,26 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	}
 	if flags.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " "))
+	}
+	if *scenarioPath != "" {
+		var conflictingFlags []string
+		flags.Visit(func(option *flag.Flag) {
+			if option.Name != "scenario" {
+				conflictingFlags = append(conflictingFlags, "-"+option.Name)
+			}
+		})
+		if len(conflictingFlags) != 0 {
+			return fmt.Errorf("-scenario cannot be combined with configuration flags: %s", strings.Join(conflictingFlags, ", "))
+		}
+
+		scenario, err := demo.LoadScenario(*scenarioPath)
+		if err != nil {
+			return fmt.Errorf("load demo scenario: %w", err)
+		}
+		if err := demo.Run(ctx, scenario, output); err != nil {
+			return fmt.Errorf("run demo: %w", err)
+		}
+		return nil
 	}
 
 	startTime, err := time.Parse(time.RFC3339, *start)

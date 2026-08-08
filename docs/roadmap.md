@@ -1,11 +1,9 @@
 # Wattfeder Roadmap
 
-Wattfeder is a learning and portfolio project for exploring reliable
-distributed energy software in Go.
+Wattfeder is a Go project for exploring distributed energy software.
 
-The roadmap is intentionally incremental. Each milestone should produce a
-working, demonstrable system before additional infrastructure or domain
-complexity is introduced.
+Each milestone should leave a working system before more infrastructure or
+domain behavior is added.
 
 The current milestone should remain the main focus. Later milestones describe
 possible directions rather than fixed commitments.
@@ -101,10 +99,12 @@ Command
   applying commands, and writing output.
 * CLI tests cover help, invalid arguments, configuration mapping, deterministic
   output, cancellation, and output errors.
+* `make demo` loads a fixed JSON scenario, exposes each telemetry and decision
+  step, and verifies the expected decision sequence.
 * `make check` verifies formatting, module metadata, static analysis, tests, and
   compilation.
-* The README documents setup, execution, configuration discovery, model
-  assumptions, and verification.
+* The setup, demo, architecture, and model guides document execution,
+  configuration, current behavior, and verification.
 
 ### Deliberate limitations
 

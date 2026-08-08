@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -84,6 +85,46 @@ func TestRunIsDeterministic(t *testing.T) {
 	}
 	if first.String() != second.String() {
 		t.Errorf("identical runs produced different output:\nfirst:  %s\nsecond: %s", first.String(), second.String())
+	}
+}
+
+func TestRunDemoScenario(t *testing.T) {
+	scenarioPath := filepath.Join("..", "..", "scenarios", "demo.json")
+	args := []string{"-scenario", scenarioPath}
+	var first bytes.Buffer
+	var second bytes.Buffer
+
+	if err := run(context.Background(), args, &first); err != nil {
+		t.Fatalf("first run() error = %v", err)
+	}
+	if err := run(context.Background(), args, &second); err != nil {
+		t.Fatalf("second run() error = %v", err)
+	}
+	if first.String() != second.String() {
+		t.Error("identical scenario runs produced different output")
+	}
+
+	output := first.String()
+	for _, want := range []string{
+		`"event":"demo_scenario_loaded"`,
+		`"event":"telemetry_produced"`,
+		`"event":"decision_produced"`,
+		`"event":"simulation_completed"`,
+		`"records":4`,
+		`"charge_decisions":1`,
+		`"discharge_decisions":3`,
+		`"expected_result":"matched"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("run() output does not contain %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestRunRejectsScenarioWithConfigurationFlags(t *testing.T) {
+	err := run(context.Background(), []string{"-scenario", "demo.json", "-seed", "1"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "cannot be combined") {
+		t.Errorf("run() error = %v, want conflicting-flags error", err)
 	}
 }
 

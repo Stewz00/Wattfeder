@@ -35,7 +35,7 @@ func TestConfigValidate(t *testing.T) {
 		{name: "base electricity price is negative", modify: func(cfg *Config) { cfg.PriceBaseEURPerKWh = -1 }, wantErr: true},
 		{name: "base electricity price is NaN", modify: func(cfg *Config) { cfg.PriceBaseEURPerKWh = math.NaN() }, wantErr: true},
 		{name: "base electricity price is infinite", modify: func(cfg *Config) { cfg.PriceBaseEURPerKWh = math.Inf(1) }, wantErr: true},
-		{name: "one day interval is valid", modify: func(cfg *Config) { cfg.Interval = simulationDuration }},
+		{name: "one day interval is valid", modify: func(cfg *Config) { cfg.Interval = SimulationDuration }},
 		{name: "interval does not divide one day", modify: func(cfg *Config) { cfg.Interval = 7 * time.Minute }, wantErr: true},
 		{name: "interval is zero", modify: func(cfg *Config) { cfg.Interval = 0 }, wantErr: true},
 		{name: "interval is negative", modify: func(cfg *Config) { cfg.Interval = -time.Minute }, wantErr: true},

@@ -20,7 +20,8 @@ type Config struct {
 	PriceBaseEURPerKWh        float64
 }
 
-const simulationDuration = 24 * time.Hour
+// SimulationDuration is the fixed length of one simulated household run.
+const SimulationDuration = 24 * time.Hour
 
 func (c Config) Validate() error {
 	if c.Start.IsZero() {
@@ -32,8 +33,8 @@ func (c Config) Validate() error {
 	}
 
 	// Require complete intervals so a simulated day has no partial final event
-	if simulationDuration%c.Interval != 0 {
-		return fmt.Errorf("interval must divide %s evenly, got %s", simulationDuration, c.Interval)
+	if SimulationDuration%c.Interval != 0 {
+		return fmt.Errorf("interval must divide %s evenly, got %s", SimulationDuration, c.Interval)
 	}
 
 	// Reject non-finite values before applying ordinary range checks

@@ -1,0 +1,24 @@
+{
+  "name": "one-household-day",
+  "seed": 42,
+  "start": "2026-01-01T00:00:00Z",
+  "duration": "24h",
+  "interval": "6h",
+  "device_id": "demo-home-001",
+  "battery": {
+    "capacity_kwh": 10,
+    "starting_soc_percent": 50
+  },
+  "pv": {
+    "peak_power_kw": 6
+  },
+  "load": {
+    "base_power_kw": 0.4
+  },
+  "price": {
+    "base_eur_per_kwh": 0.30
+  },
+  "expected": {
+    "decisions": ["discharge", "discharge", "charge", "discharge"]
+  }
+}

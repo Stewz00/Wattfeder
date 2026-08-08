@@ -1,111 +1,64 @@
 # Wattfeder
 
-Wattfeder is a learning and portfolio project for exploring reliable
-distributed energy systems in Go.
+Wattfeder simulates one household with solar panels and a battery. It explores
+how changing production, electricity use, and price affect simple battery
+decisions. The current program runs locally and keeps all state in memory.
+The fixed demo shows how telemetry becomes battery decisions. The documents
+below explain setup, runtime flow, and model limits.
 
-It is not a production virtual power plant. The project focuses on telemetry
-processing, device state, control decisions, failure handling, observability,
-and deployment through deliberately incremental milestones.
+## What Wattfeder does
+
+The simulator produces a fixed 24-hour household timeline. Each telemetry event
+contains solar production, household load, battery state, and electricity price.
+A control policy chooses whether to charge, discharge, or leave the battery idle.
 
 ## Current status
 
-Milestone v0.1 is complete. The runnable application simulates one deterministic
-24-hour household timeline, validates each telemetry event, updates the latest
-in-memory state, chooses a charge, discharge, or idle command, applies that
-command to subsequent battery SOC, and emits one JSON record per interval.
-SIGINT and SIGTERM stop the run gracefully.
+| Status | Scope |
+| --- | --- |
+| Implemented | One deterministic household simulation, telemetry validation, battery state updates, control decisions, JSON output, and graceful shutdown. |
+| Partially implemented | Telemetry passes through the simulator, state, and policy code, but the latest state exists only in memory. |
+| Planned | Persistent storage, failure simulation, multiple households, network inputs, and operational metrics. |
 
-State and output are process-local. Persistent telemetry, commands, and latest
-device state are planned for v0.2.
+The [roadmap](docs/roadmap.md) separates completed work from planned milestones.
+
+## Demo
+
+```bash
+make demo
+```
+
+This command loads a fixed scenario and runs four six-hour intervals. The output
+shows each telemetry event, each battery decision, and a final result check. See
+the [demo guide](docs/DEMO.md) for the scenario and expected output.
 
 ## Architecture snapshot
 
 ```mermaid
 flowchart LR
-    CLI["Wattfeder CLI"] --> Simulator["Deterministic simulator"]
-    Simulator -->|yields| Telemetry["Validated telemetry"]
-    Telemetry -->|updates| State["Latest household state"]
-    State --> Policy["Deterministic policy"]
-    Policy -->|returns| Command["Charge, discharge, or idle"]
-    Command -->|applies to next interval| Simulator
-    Command --> Output["JSON record"]
+    Config["CLI flags or scenario"] --> Simulator["Household simulator"]
+    Simulator --> Flow["Application flow"]
+    Flow --> State["Latest in-memory state"]
+    State --> Policy["Battery policy"]
+    Policy --> Simulator
+    Flow --> Output["JSON output"]
 ```
 
-## Requirements
-
-- Go 1.26.5
-- Make, if you want to use the convenience targets
-
-## Setup and execution
-
-Clone the repository and run the default one-hour interval simulation:
-
-```bash
-git clone https://github.com/Stewz00/wattfeder.git
-cd wattfeder
-go run ./cmd/wattfeder
-```
-
-The command emits 24 newline-delimited JSON records and then exits. `make run`
-starts the same default simulation.
-
-Use `-help` to list every configuration flag:
-
-```bash
-go run ./cmd/wattfeder -help
-```
-
-For example, this runs one interval covering the full simulated day:
-
-```bash
-go run ./cmd/wattfeder -interval 24h
-```
-
-Example output, formatted across lines for readability:
-
-```json
-{
-  "timestamp": "2026-08-07T00:00:00Z",
-  "device_id": "home-001",
-  "pv_power_kw": 0,
-  "load_power_kw": 0.3861461516439471,
-  "battery_soc_percent": 50,
-  "electricity_price_eur_kwh": 0.31498997331311535,
-  "decision": "discharge",
-  "command_power_kw": 0.3861461516439471,
-  "reason": "Electricity price is at or above EUR 0.30/kWh and household load exceeds PV production"
-}
-```
-
-Press Ctrl+C while a run is active to request graceful cancellation.
-
-## Verification
-
-Run formatting checks, module verification, static analysis, tests, and builds:
-
-```bash
-make check
-```
+See [Architecture](docs/ARCHITECTURE.md) for component responsibilities and data
+flow.
 
 ## Model assumptions
 
-- A simulated day is exactly 24 hours from the configured start and uses UTC.
-- The sampling interval must divide 24 hours without a partial final event.
-- The seed varies daily PV, load, and price levels reproducibly.
-- Battery SOC is bounded between 0% and 100% with perfect efficiency and no
-  battery power limit.
-- The control policy charges a PV surplus unless the battery is full.
-- It discharges a load deficit only above the 20% SOC reserve and at an
-  electricity price of at least EUR 0.30/kWh. Discharge power is limited when
-  necessary so the interval cannot take the battery below the reserve.
-- Idle decisions leave the battery unchanged; the grid implicitly handles the
-  remaining household surplus or deficit.
+The profiles are synthetic. They are not forecasts for a real household. The
+battery has perfect efficiency and no power limit. The grid supplies unmet load
+and receives unused solar production.
 
-See the [simulation model](docs/simulation-model.md) for units, profile shapes,
-guarantees, and deliberate simplifications.
+See [Model assumptions](docs/MODEL.md) for units, rules, and limitations.
 
 ## Documentation
 
-- [Roadmap](docs/roadmap.md) describes current progress and planned milestones.
-- [Internal implementation checklist](docs/llm-checklist-roadmap.md) tracks
-  verified execution state for development workflows.
+- [Development setup](docs/SETUP.md)
+- [Demo](docs/DEMO.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Model assumptions](docs/MODEL.md)
+- [Roadmap](docs/roadmap.md)

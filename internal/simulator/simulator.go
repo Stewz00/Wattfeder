@@ -101,7 +101,7 @@ func (s *Simulator) SimulateDay() ([]household.Telemetry, error) {
 
 // IntervalsPerDay returns the number of telemetry events in one simulated day.
 func (s *Simulator) IntervalsPerDay() int {
-	return int(simulationDuration / s.cfg.Interval)
+	return int(SimulationDuration / s.cfg.Interval)
 }
 
 // NextTelemetry reports the current battery state and awaits one control command.
@@ -154,7 +154,7 @@ func (s *Simulator) ApplyCommand(command household.Command) error {
 }
 
 func (s *Simulator) startDay() {
-	s.dayEnd = s.currentTime.Add(simulationDuration)
+	s.dayEnd = s.currentTime.Add(SimulationDuration)
 	s.dailyPVFactor = s.randomFactor(pvDailyFactorMin, pvDailyFactorMax)
 	s.dailyLoadFactor = s.randomFactor(loadDailyFactorMin, loadDailyFactorMax)
 	s.dailyPriceFactor = s.randomFactor(priceDailyFactorMin, priceDailyFactorMax)

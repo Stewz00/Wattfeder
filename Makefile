@@ -1,16 +1,24 @@
 GO       ?= go
 GOFMT    ?= gofmt
 PACKAGES ?= ./...
+DEMO_SCENARIO ?= scenarios/demo.json
 
 .DEFAULT_GOAL := help
 
-.PHONY: help run check verify validate fmt fmt-check mod-tidy-check mod-verify vet test build
+.PHONY: help run demo demo-clean check verify validate fmt fmt-check mod-tidy-check mod-verify vet test build
 
 help: ## Show the available targets.
 	@awk 'BEGIN {FS = ":.*## "; printf "Usage: make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 run: ## Run the Wattfeder application.
 	@$(GO) run ./cmd/wattfeder
+
+demo: ## Run the fixed local demo scenario.
+	@command -v $(GO) >/dev/null 2>&1 || { printf 'Required tool not found: %s\n' "$(GO)"; exit 1; }
+	@$(GO) run ./cmd/wattfeder -scenario $(DEMO_SCENARIO)
+
+demo-clean: ## Remove state created by the demo.
+	@printf 'No demo state was created.\n'
 
 check: verify validate ## Run all verification and validation checks.
 
