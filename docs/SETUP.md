@@ -48,14 +48,16 @@ go run ./cmd/wattfeder
 ```
 
 The command creates `wattfeder.db`, writes 24 newline-delimited JSON records,
-and exits. Each record contains telemetry and the decision for one interval.
-Telemetry, its command, and latest device state commit atomically before the
+and exits. Each record reports one interval's disposition, health, and — when
+the interval produced one — its telemetry and command. Telemetry, its
+command, latest device state, and device health commit atomically before the
 simulator applies the command.
 
 On a later run for the same device, the latest persisted battery SOC overrides
-`-starting-battery-soc-percent`. Replaying an already committed event stops
-without applying or emitting its command again. Choose a later `-start` value to
-process a new simulated day.
+`-starting-battery-soc-percent`. Replaying an already committed event reports
+it as a duplicate and applies no command, but does not stop the run — every
+interval that follows is still processed and reported. Choose a later
+`-start` value to process a new simulated day instead of replaying one.
 
 Use `make run` to run the same command.
 
@@ -84,5 +86,6 @@ make check
 - `open persistence`: Verify that the `-database` parent directory exists and
   is writable.
 - No output after interruption: A cancellation stops before the next interval.
-- No output from a repeated run: The first event ID is already committed. Use a
-  later `-start` value or a different database for an independent simulation.
+- Every record reports `"disposition":"duplicate"` on a repeated run: The
+  event IDs are already committed. Use a later `-start` value or a different
+  database for an independent simulation.

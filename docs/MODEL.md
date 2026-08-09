@@ -25,11 +25,16 @@ charge (SOC) means stored energy as a percentage of battery capacity.
 
 ## Outputs
 
-Each telemetry event contains a producer-assigned event ID, timestamp, device
-ID, PV power, load power, battery SOC, and electricity price. The policy adds a
-decision, command power, and reason. The simulator derives a stable event ID
-from the device ID and UTC timestamp so replaying the same interval retains its
-identity.
+Each telemetry event contains a producer-assigned event ID, event time, device
+ID, PV power, load power, battery SOC, and electricity price. Event time is
+when the measurement happened; receive time is when Wattfeder observed it, and
+is normally equal to event time unless a fault schedule delays delivery. The
+policy adds a decision, command power, and reason when the event was accepted
+and its command was not suppressed. The simulator derives a stable event ID
+from the device ID and UTC event time so replaying the same interval retains
+its identity, unless a fault schedule explicitly overrides the identity or
+timing of that interval's delivery (see [ADR-008](engineering/adr/ADR-008-unreliable-telemetry-disposition-and-health.md)
+for how a delayed, duplicate, or out-of-order delivery is classified).
 
 Power uses kilowatts. Energy uses kilowatt-hours. The model treats sampled power
 as constant until the next event:
@@ -82,6 +87,30 @@ The policy follows these rules:
   and battery SOC is above 20%.
 - Limit discharge power when needed to preserve the 20% reserve.
 - Use idle for all other conditions.
+
+## Deterministic fault injection
+
+A scenario may configure a fault schedule: a set of one-based simulated
+interval steps, each replacing that step's normal delivery with one
+deterministic anomaly instead. Every configured interval still produces
+exactly one observation (or explicitly none, for a missing heartbeat); faults
+never add or remove intervals.
+
+| Fault | Effect |
+| --- | --- |
+| `duplicate` | Resends the immediately preceding interval's own event ID, event time, and measurements, with a new receive time. Cannot apply at step 1. |
+| `out_of_order` | Delivers an event whose event time is shifted earlier by a configured negative offset, under a configured stable event ID. |
+| `delay` | Delivers the interval's own event on time but with a receive time shifted later by a configured positive duration; repeatable across consecutive steps to model a slow producer. |
+| `missing_value` | Omits one named measurement from an otherwise valid delivery. |
+| `invalid_measurement` | Replaces one named measurement with a configured value that fails domain validation. |
+| `missing_heartbeat` | No observation arrives for the interval at all. |
+| `unavailable` | The source explicitly reports itself unavailable, with no measurements. |
+
+A fault may repeat across a configured number of consecutive steps. Fault
+step ranges must not overlap. Whatever the interval's disposition, the
+battery still advances exactly one interval: a suppressed or rejected
+observation evolves the battery as idle rather than under an uncontrolled or
+missing command.
 
 ## Simplifications
 
