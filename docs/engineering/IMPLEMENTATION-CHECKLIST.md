@@ -229,18 +229,37 @@ tests. The fixed demo remains in-memory and creates no persistent state.
 
 ### Next task
 
-Define explicit acceptance and state-update behavior for out-of-order, delayed,
-missing, and invalid telemetry, then add deterministic simulator fault cases
-and device health states for v0.3.
+Record the telemetry disposition matrix for duplicate, out-of-order, delayed,
+missing, and invalid events, including the ordering key and the separation of
+event time from receive time. Then implement that behavior, add deterministic
+simulator fault cases, and introduce device health states for v0.3.
 
 ## Current milestone
 
 - [ ] v0.3 — Unreliable Telemetry
 
+Unstarted items:
+
+- [ ] Separate event time from receive time in telemetry and durable records.
+- [ ] Document the disposition matrix for every supported failure mode.
+- [ ] Prevent delayed telemetry from replacing a newer latest state while still
+  retaining it as history.
+- [ ] Add deterministic fault injection to the simulator.
+- [ ] Introduce online, stale, offline, and invalid device health states.
+- [ ] Report rejection and ignore reasons in structured output.
+- [ ] Continue processing subsequent events after a rejected or ignored event.
+- [ ] Cover every supported failure mode with an automated test.
+
 ## Later milestones
 
-- [ ] v0.4 — Multi-Device Processing
+- [ ] v0.4 — Single-Site Edge Runtime
 - [ ] v0.5 — Observability and Local Operations
-- [ ] v0.6 — Pluggable Telemetry Sources
-- [ ] v0.7 — Device Fleet Management
-- [ ] v0.8 — Kubernetes Deployment
+- [ ] v0.6 — Cloud Ingestion Service
+- [ ] v0.7 — Offline-Capable Edge Delivery
+- [ ] v0.8 — Fleet Simulation and Ingestion Load
+- [ ] v0.9 — Azure Deployment with Pulumi
+- [ ] v1.0 — Portfolio Readiness
+
+The milestone titles and their exit criteria live in
+[`../roadmap.md`](../roadmap.md). The goals they serve live in
+[`GOALS.md`](GOALS.md).
