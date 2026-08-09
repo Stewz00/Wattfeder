@@ -360,19 +360,41 @@ func (s *stubSimulation) IntervalsPerDay() int {
 	return 1
 }
 
-func (s *stubSimulation) NextTelemetry() (household.Telemetry, error) {
+func (s *stubSimulation) NextObservation() (*household.ObservationEnvelope, error) {
+	var event household.Telemetry
 	if len(s.events) > 0 {
-		event := s.events[s.nextCalls]
-		s.nextCalls++
-		return event, s.nextErr
+		event = s.events[s.nextCalls]
+	} else {
+		event = s.event
 	}
 	s.nextCalls++
-	return s.event, s.nextErr
+	if s.nextErr != nil {
+		return nil, s.nextErr
+	}
+	return envelopeFromTelemetry(event), nil
 }
 
-func (s *stubSimulation) ApplyCommand(household.Command) error {
+func (s *stubSimulation) Complete(*household.Command) error {
 	s.applyCalls++
 	return s.applyErr
+}
+
+func envelopeFromTelemetry(event household.Telemetry) *household.ObservationEnvelope {
+	pv, load, soc, price := event.PVPowerKW, event.LoadPowerKW, event.BatterySOCPercent, event.PriceEURPerKWh
+	return &household.ObservationEnvelope{
+		SourceDeviceID: event.DeviceID,
+		ReceivedAt:     event.EventTime,
+		Telemetry: &household.RawTelemetry{
+			EventID:           event.EventID,
+			EventTime:         event.EventTime,
+			DeviceID:          event.DeviceID,
+			PVPowerKW:         &pv,
+			LoadPowerKW:       &load,
+			BatterySOCPercent: &soc,
+			PriceEURPerKWh:    &price,
+		},
+		Available: true,
+	}
 }
 
 type stubRepository struct {

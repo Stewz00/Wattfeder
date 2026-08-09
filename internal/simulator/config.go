@@ -18,6 +18,8 @@ type Config struct {
 	PVPeakPowerKW             float64
 	LoadBasePowerKW           float64
 	PriceBaseEURPerKWh        float64
+	// Faults configures deterministic delivery anomalies; nil means normal delivery throughout.
+	Faults FaultSchedule
 }
 
 // SimulationDuration is the fixed length of one simulated household run.
@@ -60,6 +62,10 @@ func (c Config) Validate() error {
 
 	if strings.TrimSpace(c.DeviceID) == "" {
 		return errors.New("device ID must not be empty")
+	}
+
+	if err := c.Faults.Validate(); err != nil {
+		return fmt.Errorf("invalid fault schedule: %w", err)
 	}
 
 	return nil

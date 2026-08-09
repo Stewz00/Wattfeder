@@ -319,18 +319,12 @@ func TestSimulatorAppliesControlCommandsToBatteryState(t *testing.T) {
 				t.Fatalf("New() error = %v", err)
 			}
 
-			first, err := sim.NextTelemetry()
-			if err != nil {
-				t.Fatalf("first NextTelemetry() error = %v", err)
-			}
-			if err := sim.ApplyCommand(tt.command); err != nil {
-				t.Fatalf("ApplyCommand() error = %v", err)
+			first := nextTelemetry(t, sim)
+			if err := sim.Complete(&tt.command); err != nil {
+				t.Fatalf("Complete() error = %v", err)
 			}
 
-			second, err := sim.NextTelemetry()
-			if err != nil {
-				t.Fatalf("second NextTelemetry() error = %v", err)
-			}
+			second := nextTelemetry(t, sim)
 			if math.Abs(second.BatterySOCPercent-tt.wantSOCPercent) > floatingPointTolerance {
 				t.Errorf("SOC after %s command = %v, want %v", tt.name, second.BatterySOCPercent, tt.wantSOCPercent)
 			}
@@ -351,36 +345,36 @@ func TestSimulatorRequiresOneValidCommandPerTelemetryEvent(t *testing.T) {
 		Decision: household.DecisionIdle,
 		Reason:   "Use grid power",
 	}
-	if err := sim.ApplyCommand(validCommand); err == nil {
-		t.Error("ApplyCommand() before telemetry error = nil, want an error")
+	if err := sim.Complete(&validCommand); err == nil {
+		t.Error("Complete() before an observation error = nil, want an error")
 	}
 
-	if _, err := sim.NextTelemetry(); err != nil {
-		t.Fatalf("first NextTelemetry() error = %v", err)
+	if _, err := sim.NextObservation(); err != nil {
+		t.Fatalf("first NextObservation() error = %v", err)
 	}
-	if _, err := sim.NextTelemetry(); err == nil {
-		t.Error("second NextTelemetry() error = nil, want pending-command error")
+	if _, err := sim.NextObservation(); err == nil {
+		t.Error("second NextObservation() error = nil, want pending-command error")
 	}
 
 	invalidCommand := household.Command{Decision: household.DecisionIdle}
-	if err := sim.ApplyCommand(invalidCommand); err == nil {
-		t.Error("ApplyCommand(invalid) error = nil, want validation error")
+	if err := sim.Complete(&invalidCommand); err == nil {
+		t.Error("Complete(invalid) error = nil, want validation error")
 	}
-	if _, err := sim.NextTelemetry(); err == nil {
-		t.Error("NextTelemetry() after invalid command error = nil, want pending-command error")
+	if _, err := sim.NextObservation(); err == nil {
+		t.Error("NextObservation() after invalid command error = nil, want pending-command error")
 	}
 	if _, err := sim.SimulateDay(); err == nil {
 		t.Error("SimulateDay() with pending telemetry error = nil, want pending-command error")
 	}
 
-	if err := sim.ApplyCommand(validCommand); err != nil {
-		t.Fatalf("ApplyCommand(valid) error = %v", err)
+	if err := sim.Complete(&validCommand); err != nil {
+		t.Fatalf("Complete(valid) error = %v", err)
 	}
-	if err := sim.ApplyCommand(validCommand); err == nil {
-		t.Error("second ApplyCommand() error = nil, want missing-telemetry error")
+	if err := sim.Complete(&validCommand); err == nil {
+		t.Error("second Complete() error = nil, want missing-observation error")
 	}
-	if _, err := sim.NextTelemetry(); err != nil {
-		t.Errorf("NextTelemetry() after valid command error = %v", err)
+	if _, err := sim.NextObservation(); err != nil {
+		t.Errorf("NextObservation() after valid command error = %v", err)
 	}
 }
 
@@ -572,6 +566,23 @@ func TestSimulatorPriceProfile(t *testing.T) {
 
 func eventIndexAt(cfg Config, sinceStart time.Duration) int {
 	return int(sinceStart / cfg.Interval)
+}
+
+func nextTelemetry(t *testing.T, sim *Simulator) household.Telemetry {
+	t.Helper()
+
+	envelope, err := sim.NextObservation()
+	if err != nil {
+		t.Fatalf("NextObservation() error = %v", err)
+	}
+	if envelope == nil || envelope.Telemetry == nil {
+		t.Fatal("NextObservation() returned no telemetry")
+	}
+	event, err := envelope.Telemetry.Validate()
+	if err != nil {
+		t.Fatalf("validate observed telemetry: %v", err)
+	}
+	return event
 }
 
 func simulateDay(t *testing.T, sim *Simulator) []household.Telemetry {

@@ -56,6 +56,25 @@ type Simulator struct {
 	dailyLoadFactor   float64
 	dailyPriceFactor  float64
 	pendingTelemetry  bool
+	step              int
+
+	// pending* describe the interval currently awaiting completion, independent of any fault
+	// substitution applied to the envelope actually returned by NextObservation.
+	pendingEventID   household.EventID
+	pendingEventTime time.Time
+	pendingPV        float64
+	pendingLoad      float64
+	pendingSOC       float64
+	pendingPrice     float64
+
+	// prior* describe the most recently completed interval's own natural values, used to
+	// replay a delivery verbatim for the duplicate fault.
+	priorEventID   household.EventID
+	priorEventTime time.Time
+	priorPV        float64
+	priorLoad      float64
+	priorSOC       float64
+	priorPrice     float64
 }
 
 func New(cfg Config) (*Simulator, error) {
@@ -80,18 +99,27 @@ func New(cfg Config) (*Simulator, error) {
 }
 
 // SimulateDay emits one day of telemetry and evolves battery state from uncontrolled net power.
-// It returns an error if another telemetry event is awaiting a command.
+// It returns an error if another telemetry event is awaiting a command, or if the configured
+// fault schedule would prevent producing a plain telemetry event.
 func (s *Simulator) SimulateDay() ([]household.Telemetry, error) {
 	eventCount := s.IntervalsPerDay()
 	events := make([]household.Telemetry, 0, eventCount)
 
 	for range eventCount {
-		event, err := s.NextTelemetry()
+		envelope, err := s.NextObservation()
+		if err != nil {
+			return nil, fmt.Errorf("get telemetry: %w", err)
+		}
+		if envelope == nil || envelope.Telemetry == nil {
+			return nil, errors.New("get telemetry: SimulateDay does not support a fault schedule")
+		}
+		event, err := envelope.Telemetry.Validate()
 		if err != nil {
 			return nil, fmt.Errorf("get telemetry: %w", err)
 		}
 
-		if err := s.ApplyCommand(passiveCommand(event)); err != nil {
+		command := passiveCommand(event)
+		if err := s.Complete(&command); err != nil {
 			return nil, fmt.Errorf("apply passive command: %w", err)
 		}
 		events = append(events, event)
@@ -105,10 +133,12 @@ func (s *Simulator) IntervalsPerDay() int {
 	return int(SimulationDuration / s.cfg.Interval)
 }
 
-// NextTelemetry reports the current battery state and awaits one control command.
-func (s *Simulator) NextTelemetry() (household.Telemetry, error) {
+// NextObservation produces the envelope for the current simulated interval, applying any
+// fault configured for this step. A nil envelope with a nil error means no observation
+// arrived for the interval at all (a missing heartbeat).
+func (s *Simulator) NextObservation() (*household.ObservationEnvelope, error) {
 	if s.pendingTelemetry {
-		return household.Telemetry{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"control command is required for telemetry at %s",
 			s.currentTime.Format(time.RFC3339),
 		)
@@ -118,18 +148,103 @@ func (s *Simulator) NextTelemetry() (household.Telemetry, error) {
 		s.startDay()
 	}
 
-	event := household.Telemetry{
-		EventID:           simulatedEventID(s.cfg.DeviceID, s.currentTime),
-		EventTime:         s.currentTime,
-		DeviceID:          s.cfg.DeviceID,
-		PVPowerKW:         s.pvPowerKW(s.currentTime, s.dailyPVFactor),
-		LoadPowerKW:       s.loadPowerKW(s.currentTime, s.dailyLoadFactor),
-		BatterySOCPercent: s.batterySOCPercent,
-		PriceEURPerKWh:    s.priceEURPerKWh(s.currentTime, s.dailyPriceFactor),
-	}
-	s.pendingTelemetry = true
+	s.step++
+	eventTime := s.currentTime
+	eventID := simulatedEventID(s.cfg.DeviceID, eventTime)
+	pv := s.pvPowerKW(eventTime, s.dailyPVFactor)
+	load := s.loadPowerKW(eventTime, s.dailyLoadFactor)
+	soc := s.batterySOCPercent
+	price := s.priceEURPerKWh(eventTime, s.dailyPriceFactor)
 
-	return event, nil
+	s.pendingTelemetry = true
+	s.pendingEventID, s.pendingEventTime = eventID, eventTime
+	s.pendingPV, s.pendingLoad, s.pendingSOC, s.pendingPrice = pv, load, soc, price
+
+	fault, hasFault := s.cfg.Faults.at(s.step)
+	if !hasFault {
+		return fullEnvelope(s.cfg.DeviceID, eventID, eventTime, eventTime, pv, load, soc, price), nil
+	}
+
+	switch fault.Kind {
+	case FaultMissingHeartbeat:
+		return nil, nil
+	case FaultUnavailable:
+		return &household.ObservationEnvelope{SourceDeviceID: s.cfg.DeviceID, ReceivedAt: eventTime}, nil
+	case FaultDuplicate:
+		return fullEnvelope(
+			s.cfg.DeviceID, s.priorEventID, s.priorEventTime, eventTime, s.priorPV, s.priorLoad, s.priorSOC, s.priorPrice,
+		), nil
+	case FaultOutOfOrder:
+		outOfOrderTime := eventTime.Add(fault.EventTimeOffset)
+		return fullEnvelope(
+			s.cfg.DeviceID, household.EventID(fault.EventID), outOfOrderTime, eventTime, pv, load, soc, price,
+		), nil
+	case FaultDelay:
+		return fullEnvelope(s.cfg.DeviceID, eventID, eventTime, eventTime.Add(fault.Delay), pv, load, soc, price), nil
+	case FaultMissingValue:
+		return &household.ObservationEnvelope{
+			SourceDeviceID: s.cfg.DeviceID,
+			ReceivedAt:     eventTime,
+			Telemetry:      rawTelemetryWithFault(eventID, eventTime, s.cfg.DeviceID, pv, load, soc, price, fault.Measurement, nil),
+			Available:      true,
+		}, nil
+	case FaultInvalidMeasurement:
+		value := fault.Value
+		return &household.ObservationEnvelope{
+			SourceDeviceID: s.cfg.DeviceID,
+			ReceivedAt:     eventTime,
+			Telemetry: rawTelemetryWithFault(
+				eventID, eventTime, s.cfg.DeviceID, pv, load, soc, price, fault.Measurement, &value,
+			),
+			Available: true,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown fault kind %q", fault.Kind)
+	}
+}
+
+func fullEnvelope(
+	deviceID string, eventID household.EventID, eventTime, receivedAt time.Time, pv, load, soc, price float64,
+) *household.ObservationEnvelope {
+	return &household.ObservationEnvelope{
+		SourceDeviceID: deviceID,
+		ReceivedAt:     receivedAt,
+		Telemetry:      rawTelemetryWithFault(eventID, eventTime, deviceID, pv, load, soc, price, "", nil),
+		Available:      true,
+	}
+}
+
+// rawTelemetryWithFault builds a raw telemetry sample, optionally overriding one named
+// measurement with override (nil simulates a missing value).
+func rawTelemetryWithFault(
+	eventID household.EventID,
+	eventTime time.Time,
+	deviceID string,
+	pv, load, soc, price float64,
+	measurement Measurement,
+	override *float64,
+) *household.RawTelemetry {
+	pvPtr, loadPtr, socPtr, pricePtr := &pv, &load, &soc, &price
+	switch measurement {
+	case MeasurementPVPower:
+		pvPtr = override
+	case MeasurementLoadPower:
+		loadPtr = override
+	case MeasurementBatterySOC:
+		socPtr = override
+	case MeasurementPrice:
+		pricePtr = override
+	}
+
+	return &household.RawTelemetry{
+		EventID:           eventID,
+		EventTime:         eventTime,
+		DeviceID:          deviceID,
+		PVPowerKW:         pvPtr,
+		LoadPowerKW:       loadPtr,
+		BatterySOCPercent: socPtr,
+		PriceEURPerKWh:    pricePtr,
+	}
 }
 
 func simulatedEventID(deviceID string, timestamp time.Time) household.EventID {
@@ -138,23 +253,30 @@ func simulatedEventID(deviceID string, timestamp time.Time) household.EventID {
 	return household.EventID(fmt.Sprintf("sim-%x", sha256.Sum256([]byte(sourceKey))))
 }
 
-// ApplyCommand evolves the battery over the pending telemetry interval.
-func (s *Simulator) ApplyCommand(command household.Command) error {
+// Complete evolves the battery over the pending interval and advances the simulated clock.
+// A nil command means the observation's command was suppressed or rejected; the interval
+// still advances, with the battery held idle.
+func (s *Simulator) Complete(command *household.Command) error {
 	if !s.pendingTelemetry {
-		return errors.New("telemetry is required before applying a control command")
+		return errors.New("an observation is required before completing a control command")
 	}
 
-	if err := command.Validate(); err != nil {
-		return fmt.Errorf("invalid control command: %w", err)
+	var batteryPowerKW float64
+	if command != nil {
+		if err := command.Validate(); err != nil {
+			return fmt.Errorf("invalid control command: %w", err)
+		}
+		batteryPowerKW = commandBatteryPowerKW(*command)
 	}
 
-	batteryPowerKW := commandBatteryPowerKW(command)
 	s.batterySOCPercent = nextBatterySOCPercent(
 		s.batterySOCPercent,
 		batteryPowerKW,
 		s.cfg.Interval,
 		s.cfg.BatteryCapacityKWh,
 	)
+	s.priorEventID, s.priorEventTime = s.pendingEventID, s.pendingEventTime
+	s.priorPV, s.priorLoad, s.priorSOC, s.priorPrice = s.pendingPV, s.pendingLoad, s.pendingSOC, s.pendingPrice
 	s.currentTime = s.currentTime.Add(s.cfg.Interval)
 	s.pendingTelemetry = false
 

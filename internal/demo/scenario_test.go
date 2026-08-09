@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Stewz00/wattfeder/internal/household"
 	"github.com/Stewz00/wattfeder/internal/simulator"
@@ -47,6 +48,57 @@ func TestParseScenario(t *testing.T) {
 	}
 	if len(scenario.ExpectedDecisions) != 1 || scenario.ExpectedDecisions[0] != household.DecisionDischarge {
 		t.Errorf("expected decisions = %v, want [discharge]", scenario.ExpectedDecisions)
+	}
+}
+
+func TestParseScenarioParsesFaultSchedule(t *testing.T) {
+	input := strings.Replace(validScenarioJSON, `"expected"`, `
+  "faults": [
+    {"step": 2, "kind": "missing_heartbeat"},
+    {"step": 3, "kind": "delay", "delay": "45m"},
+    {"step": 4, "kind": "out_of_order", "event_time_offset": "-30m", "event_id": "fault-ooo-1"},
+    {"step": 5, "kind": "invalid_measurement", "measurement": "pv_power_kw", "value": -1}
+  ],
+  "expected"`, 1)
+
+	scenario, err := ParseScenario(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("ParseScenario() error = %v", err)
+	}
+
+	if len(scenario.Config.Faults) != 4 {
+		t.Fatalf("fault count = %d, want 4", len(scenario.Config.Faults))
+	}
+	if scenario.Config.Faults[1].Kind != simulator.FaultDelay || scenario.Config.Faults[1].Delay != 45*time.Minute {
+		t.Errorf("fault 1 = %+v, want a 45m delay fault", scenario.Config.Faults[1])
+	}
+	if scenario.Config.Faults[2].EventTimeOffset != -30*time.Minute || scenario.Config.Faults[2].EventID != "fault-ooo-1" {
+		t.Errorf("fault 2 = %+v, want a -30m out_of_order fault with event ID fault-ooo-1", scenario.Config.Faults[2])
+	}
+	if scenario.Config.Faults[3].Measurement != simulator.MeasurementPVPower || scenario.Config.Faults[3].Value != -1 {
+		t.Errorf("fault 3 = %+v, want an invalid pv_power_kw measurement of -1", scenario.Config.Faults[3])
+	}
+}
+
+func TestParseScenarioRejectsInvalidFault(t *testing.T) {
+	input := strings.Replace(validScenarioJSON, `"expected"`, `
+  "faults": [{"step": 0, "kind": "missing_heartbeat"}],
+  "expected"`, 1)
+
+	_, err := ParseScenario(strings.NewReader(input))
+	if err == nil || !strings.Contains(err.Error(), "step must be at least 1") {
+		t.Errorf("ParseScenario() error = %v, want a fault validation error", err)
+	}
+}
+
+func TestParseScenarioRejectsUnparsableFaultDuration(t *testing.T) {
+	input := strings.Replace(validScenarioJSON, `"expected"`, `
+  "faults": [{"step": 2, "kind": "delay", "delay": "not-a-duration"}],
+  "expected"`, 1)
+
+	_, err := ParseScenario(strings.NewReader(input))
+	if err == nil || !strings.Contains(err.Error(), "delay") {
+		t.Errorf("ParseScenario() error = %v, want a delay parse error", err)
 	}
 }
 

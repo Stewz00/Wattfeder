@@ -26,8 +26,8 @@ type Record struct {
 
 type simulation interface {
 	IntervalsPerDay() int
-	NextTelemetry() (household.Telemetry, error)
-	ApplyCommand(household.Command) error
+	NextObservation() (*household.ObservationEnvelope, error)
+	Complete(*household.Command) error
 }
 
 // RunDay processes one simulated day and writes one record for each telemetry event.
@@ -64,9 +64,16 @@ func runDay(
 			return err
 		}
 
-		event, err := sim.NextTelemetry()
+		envelope, err := sim.NextObservation()
 		if err != nil {
 			return fmt.Errorf("get simulated telemetry: %w", err)
+		}
+		if envelope == nil || envelope.Telemetry == nil {
+			return fmt.Errorf("get simulated telemetry: observation is unavailable")
+		}
+		event, err := envelope.Telemetry.Validate()
+		if err != nil {
+			return fmt.Errorf("apply telemetry: %w", err)
 		}
 		if err := state.ApplyTelemetry(event); err != nil {
 			return fmt.Errorf("apply telemetry: %w", err)
@@ -107,7 +114,7 @@ func runDay(
 				return fmt.Errorf("commit processing result: unexpected status %d", status)
 			}
 		}
-		if err := sim.ApplyCommand(command); err != nil {
+		if err := sim.Complete(&command); err != nil {
 			return fmt.Errorf("apply control command: %w", err)
 		}
 

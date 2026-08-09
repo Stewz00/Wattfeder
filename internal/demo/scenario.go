@@ -42,9 +42,51 @@ type scenarioDocument struct {
 	Price struct {
 		BaseEURPerKWh *float64 `json:"base_eur_per_kwh"`
 	} `json:"price"`
+	Faults   []faultDocument `json:"faults"`
 	Expected struct {
 		Decisions []household.Decision `json:"decisions"`
 	} `json:"expected"`
+}
+
+type faultDocument struct {
+	Step            int      `json:"step"`
+	Repeat          int      `json:"repeat"`
+	Kind            string   `json:"kind"`
+	EventTimeOffset string   `json:"event_time_offset"`
+	EventID         string   `json:"event_id"`
+	Delay           string   `json:"delay"`
+	Measurement     string   `json:"measurement"`
+	Value           *float64 `json:"value"`
+}
+
+func (d faultDocument) toFault() (simulator.Fault, error) {
+	fault := simulator.Fault{
+		Step:        d.Step,
+		Repeat:      d.Repeat,
+		Kind:        simulator.FaultKind(d.Kind),
+		EventID:     d.EventID,
+		Measurement: simulator.Measurement(d.Measurement),
+	}
+	if d.Value != nil {
+		fault.Value = *d.Value
+	}
+
+	if d.EventTimeOffset != "" {
+		offset, err := time.ParseDuration(d.EventTimeOffset)
+		if err != nil {
+			return simulator.Fault{}, fmt.Errorf("parse fault event_time_offset: %w", err)
+		}
+		fault.EventTimeOffset = offset
+	}
+	if d.Delay != "" {
+		delay, err := time.ParseDuration(d.Delay)
+		if err != nil {
+			return simulator.Fault{}, fmt.Errorf("parse fault delay: %w", err)
+		}
+		fault.Delay = delay
+	}
+
+	return fault, nil
 }
 
 // LoadScenario reads and validates a scenario from path.
@@ -110,6 +152,15 @@ func ParseScenario(input io.Reader) (Scenario, error) {
 		return Scenario{}, fmt.Errorf("parse interval: %w", err)
 	}
 
+	faults := make(simulator.FaultSchedule, len(document.Faults))
+	for i, faultDoc := range document.Faults {
+		fault, err := faultDoc.toFault()
+		if err != nil {
+			return Scenario{}, fmt.Errorf("parse faults[%d]: %w", i, err)
+		}
+		faults[i] = fault
+	}
+
 	scenario := Scenario{
 		Name:     document.Name,
 		Duration: duration,
@@ -123,6 +174,7 @@ func ParseScenario(input io.Reader) (Scenario, error) {
 			PVPeakPowerKW:             *document.PV.PeakPowerKW,
 			LoadBasePowerKW:           *document.Load.BasePowerKW,
 			PriceBaseEURPerKWh:        *document.Price.BaseEURPerKWh,
+			Faults:                    faults,
 		},
 		ExpectedDecisions: document.Expected.Decisions,
 	}
