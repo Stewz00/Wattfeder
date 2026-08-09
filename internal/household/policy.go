@@ -29,6 +29,11 @@ func NewPolicy(batteryCapacityKWh float64, interval time.Duration) (Policy, erro
 	return Policy{batteryCapacityKWh: batteryCapacityKWh, interval: interval}, nil
 }
 
+// Interval returns the telemetry interval this policy was configured for.
+func (p Policy) Interval() time.Duration {
+	return p.interval
+}
+
 // Decide returns the battery command for the latest valid household state.
 func (p Policy) Decide(state State) Command {
 	netPowerKW := state.PVPowerKW - state.LoadPowerKW

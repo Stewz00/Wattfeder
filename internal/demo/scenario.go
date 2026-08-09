@@ -14,12 +14,17 @@ import (
 	"github.com/Stewz00/wattfeder/internal/simulator"
 )
 
-// Scenario contains one fixed simulator configuration and its expected decisions.
+// Scenario contains one fixed simulator configuration and its expected outcome.
+// ExpectedDecisions must contain one entry per interval; an empty household.Decision means
+// no command is expected that interval. ExpectedDispositions and ExpectedHealthStatuses are
+// optional and, when non-empty, must also contain one entry per interval.
 type Scenario struct {
-	Name              string
-	Duration          time.Duration
-	Config            simulator.Config
-	ExpectedDecisions []household.Decision
+	Name                   string
+	Duration               time.Duration
+	Config                 simulator.Config
+	ExpectedDecisions      []household.Decision
+	ExpectedDispositions   []household.Disposition
+	ExpectedHealthStatuses []household.DeviceHealthStatus
 }
 
 type scenarioDocument struct {
@@ -44,7 +49,9 @@ type scenarioDocument struct {
 	} `json:"price"`
 	Faults   []faultDocument `json:"faults"`
 	Expected struct {
-		Decisions []household.Decision `json:"decisions"`
+		Decisions      []household.Decision           `json:"decisions"`
+		Dispositions   []household.Disposition        `json:"dispositions"`
+		HealthStatuses []household.DeviceHealthStatus `json:"health_statuses"`
 	} `json:"expected"`
 }
 
@@ -176,7 +183,9 @@ func ParseScenario(input io.Reader) (Scenario, error) {
 			PriceBaseEURPerKWh:        *document.Price.BaseEURPerKWh,
 			Faults:                    faults,
 		},
-		ExpectedDecisions: document.Expected.Decisions,
+		ExpectedDecisions:      document.Expected.Decisions,
+		ExpectedDispositions:   document.Expected.Dispositions,
+		ExpectedHealthStatuses: document.Expected.HealthStatuses,
 	}
 	if err := scenario.Validate(); err != nil {
 		return Scenario{}, err
@@ -197,19 +206,50 @@ func (s Scenario) Validate() error {
 		return fmt.Errorf("invalid simulator configuration: %w", err)
 	}
 
-	wantDecisionCount := int(s.Duration / s.Config.Interval)
-	if len(s.ExpectedDecisions) != wantDecisionCount {
+	wantCount := int(s.Duration / s.Config.Interval)
+	if len(s.ExpectedDecisions) != wantCount {
 		return fmt.Errorf(
 			"expected.decisions must contain %d entries, got %d",
-			wantDecisionCount,
+			wantCount,
 			len(s.ExpectedDecisions),
 		)
 	}
 	for i, decision := range s.ExpectedDecisions {
 		switch decision {
-		case household.DecisionCharge, household.DecisionDischarge, household.DecisionIdle:
+		case household.DecisionCharge, household.DecisionDischarge, household.DecisionIdle, "":
 		default:
 			return fmt.Errorf("expected.decisions[%d] has invalid decision %q", i, decision)
+		}
+	}
+
+	if len(s.ExpectedDispositions) != 0 && len(s.ExpectedDispositions) != wantCount {
+		return fmt.Errorf(
+			"expected.dispositions must contain %d entries, got %d",
+			wantCount,
+			len(s.ExpectedDispositions),
+		)
+	}
+	for i, disposition := range s.ExpectedDispositions {
+		switch disposition {
+		case household.DispositionAccepted, household.DispositionHistoryOnly, household.DispositionDuplicate,
+			household.DispositionRejected, household.DispositionMissing, household.DispositionUnavailable:
+		default:
+			return fmt.Errorf("expected.dispositions[%d] has invalid disposition %q", i, disposition)
+		}
+	}
+
+	if len(s.ExpectedHealthStatuses) != 0 && len(s.ExpectedHealthStatuses) != wantCount {
+		return fmt.Errorf(
+			"expected.health_statuses must contain %d entries, got %d",
+			wantCount,
+			len(s.ExpectedHealthStatuses),
+		)
+	}
+	for i, status := range s.ExpectedHealthStatuses {
+		switch status {
+		case household.HealthOnline, household.HealthStale, household.HealthOffline, household.HealthInvalid:
+		default:
+			return fmt.Errorf("expected.health_statuses[%d] has invalid health status %q", i, status)
 		}
 	}
 

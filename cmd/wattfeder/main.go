@@ -123,7 +123,7 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	}
 
 	encoder := json.NewEncoder(output)
-	runErr := application.RunPersistentDay(ctx, sim, policy, repository, func(record application.Record) error {
+	runErr := application.RunPersistentDay(ctx, sim, policy, repository, cfg.DeviceID, func(record application.Record) error {
 		return encoder.Encode(record)
 	})
 	if runErr != nil {

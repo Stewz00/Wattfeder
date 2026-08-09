@@ -160,6 +160,9 @@ func TestClassifyHistoryOnlyForEqualOrOlderEventTime(t *testing.T) {
 			if result.Disposition != DispositionHistoryOnly {
 				t.Errorf("Disposition = %v, want %v", result.Disposition, DispositionHistoryOnly)
 			}
+			if result.Reason == "" {
+				t.Error("Reason is empty, want a structured reason")
+			}
 			if result.Telemetry == nil {
 				t.Fatal("Telemetry = nil, want stored event")
 			}

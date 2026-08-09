@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Stewz00/wattfeder/internal/application"
+	"github.com/Stewz00/wattfeder/internal/household"
 )
 
 func TestRunEmitsJSONRecords(t *testing.T) {
@@ -64,13 +65,13 @@ func TestRunMapsConfigurationFlagsToOutput(t *testing.T) {
 		t.Fatalf("decode output: %v", err)
 	}
 	wantTimestamp := time.Date(2026, 8, 8, 4, 30, 0, 0, time.UTC)
-	if !record.Timestamp.Equal(wantTimestamp) {
+	if record.Timestamp == nil || !record.Timestamp.Equal(wantTimestamp) {
 		t.Errorf("timestamp = %v, want %v", record.Timestamp, wantTimestamp)
 	}
 	if record.DeviceID != "home-test" {
 		t.Errorf("device ID = %q, want %q", record.DeviceID, "home-test")
 	}
-	if record.BatterySOCPercent != 73 {
+	if record.BatterySOCPercent == nil || *record.BatterySOCPercent != 73 {
 		t.Errorf("battery SOC = %v, want 73", record.BatterySOCPercent)
 	}
 }
@@ -116,6 +117,43 @@ func TestRunDemoScenario(t *testing.T) {
 		`"records":4`,
 		`"charge_decisions":1`,
 		`"discharge_decisions":3`,
+		`"expected_result":"matched"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("run() output does not contain %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestRunUnreliableTelemetryScenario(t *testing.T) {
+	scenarioPath := filepath.Join("..", "..", "scenarios", "unreliable-telemetry-day.json")
+	args := []string{"-scenario", scenarioPath}
+	var first bytes.Buffer
+	var second bytes.Buffer
+
+	if err := run(context.Background(), args, &first); err != nil {
+		t.Fatalf("first run() error = %v", err)
+	}
+	if err := run(context.Background(), args, &second); err != nil {
+		t.Fatalf("second run() error = %v", err)
+	}
+	if first.String() != second.String() {
+		t.Error("identical scenario runs produced different output")
+	}
+
+	output := first.String()
+	for _, want := range []string{
+		`"disposition":"accepted"`,
+		`"disposition":"rejected"`,
+		`"disposition":"missing"`,
+		`"disposition":"unavailable"`,
+		`"disposition":"duplicate"`,
+		`"disposition":"history_only"`,
+		`"health_status":"online"`,
+		`"health_status":"invalid"`,
+		`"health_status":"offline"`,
+		`"health_status":"stale"`,
+		`"records":12`,
 		`"expected_result":"matched"`,
 	} {
 		if !strings.Contains(output, want) {
@@ -232,33 +270,49 @@ func TestRunRestoresLatestBatteryState(t *testing.T) {
 	if len(secondRecords) != 1 {
 		t.Fatalf("second run record count = %d, want 1", len(secondRecords))
 	}
-	wantSOC := firstRecords[len(firstRecords)-1].BatterySOCPercent
-	if secondRecords[0].BatterySOCPercent != wantSOC {
+	lastFirst := firstRecords[len(firstRecords)-1]
+	if lastFirst.BatterySOCPercent == nil || secondRecords[0].BatterySOCPercent == nil {
+		t.Fatalf("expected battery SOC on both runs' records, got %v and %v", lastFirst.BatterySOCPercent, secondRecords[0].BatterySOCPercent)
+	}
+	if *secondRecords[0].BatterySOCPercent != *lastFirst.BatterySOCPercent {
 		t.Errorf(
 			"restored battery SOC = %v, want latest persisted value %v",
-			secondRecords[0].BatterySOCPercent,
-			wantSOC,
+			*secondRecords[0].BatterySOCPercent,
+			*lastFirst.BatterySOCPercent,
 		)
 	}
 }
 
-func TestRunDoesNotRedeliverDuplicateEvent(t *testing.T) {
+func TestRunReportsDuplicatesWithoutRedelivering(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "wattfeder.db")
 	args := []string{"-database", databasePath, "-interval", "24h"}
 	var firstOutput bytes.Buffer
 	if err := run(t.Context(), args, &firstOutput); err != nil {
 		t.Fatalf("first run() error = %v", err)
 	}
-	if firstOutput.Len() == 0 {
-		t.Fatal("first run output is empty")
+	firstRecords := decodeRecords(t, &firstOutput)
+	if len(firstRecords) == 0 {
+		t.Fatal("first run produced no records")
 	}
 
 	var secondOutput bytes.Buffer
 	if err := run(t.Context(), args, &secondOutput); err != nil {
 		t.Fatalf("duplicate run() error = %v", err)
 	}
-	if secondOutput.Len() != 0 {
-		t.Errorf("duplicate run output = %q, want no redelivery", secondOutput.String())
+	secondRecords := decodeRecords(t, &secondOutput)
+	if len(secondRecords) != len(firstRecords) {
+		t.Fatalf("duplicate run record count = %d, want %d (every interval must still be reported)", len(secondRecords), len(firstRecords))
+	}
+	for i, record := range secondRecords {
+		if record.Disposition != household.DispositionDuplicate {
+			t.Errorf("record %d disposition = %q, want %q", i, record.Disposition, household.DispositionDuplicate)
+		}
+		if record.StateUpdated {
+			t.Errorf("record %d state_updated = true, want false (a duplicate must not redeliver)", i)
+		}
+		if record.Decision != "" {
+			t.Errorf("record %d decision = %q, want empty (a duplicate must not produce a command)", i, record.Decision)
+		}
 	}
 }
 

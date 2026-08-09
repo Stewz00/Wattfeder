@@ -100,6 +100,7 @@ func historyOnly(in ClassifyInput, event Telemetry) ClassifyResult {
 
 	return ClassifyResult{
 		Disposition:     DispositionHistoryOnly,
+		Reason:          "event time is not strictly newer than the latest state",
 		Telemetry:       &event,
 		SuppressCommand: true,
 		Health:          health,

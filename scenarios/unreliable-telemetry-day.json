@@ -1,0 +1,41 @@
+{
+  "name": "unreliable-telemetry-day",
+  "seed": 42,
+  "start": "2026-01-01T00:00:00Z",
+  "duration": "24h",
+  "interval": "2h",
+  "device_id": "unreliable-home-001",
+  "battery": {
+    "capacity_kwh": 10,
+    "starting_soc_percent": 50
+  },
+  "pv": {
+    "peak_power_kw": 6
+  },
+  "load": {
+    "base_power_kw": 0.4
+  },
+  "price": {
+    "base_eur_per_kwh": 0.30
+  },
+  "faults": [
+    {"step": 2, "kind": "missing_value", "measurement": "pv_power_kw"},
+    {"step": 3, "kind": "invalid_measurement", "measurement": "battery_soc_percent", "value": -5},
+    {"step": 4, "kind": "missing_heartbeat"},
+    {"step": 5, "kind": "unavailable"},
+    {"step": 6, "kind": "delay", "delay": "3h"},
+    {"step": 7, "kind": "duplicate"},
+    {"step": 8, "kind": "out_of_order", "event_time_offset": "-5h", "event_id": "unreliable-ooo-1"}
+  ],
+  "expected": {
+    "decisions": ["discharge", "", "", "", "", "", "", "", "charge", "discharge", "discharge", "discharge"],
+    "dispositions": [
+      "accepted", "rejected", "rejected", "missing", "unavailable",
+      "accepted", "duplicate", "history_only", "accepted", "accepted", "accepted", "accepted"
+    ],
+    "health_statuses": [
+      "online", "invalid", "invalid", "invalid", "offline",
+      "stale", "stale", "stale", "online", "online", "online", "online"
+    ]
+  }
+}

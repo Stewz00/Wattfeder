@@ -36,6 +36,17 @@ func TestNewPolicy(t *testing.T) {
 	}
 }
 
+func TestPolicyInterval(t *testing.T) {
+	policy, err := NewPolicy(10, 15*time.Minute)
+	if err != nil {
+		t.Fatalf("NewPolicy() error = %v", err)
+	}
+
+	if got := policy.Interval(); got != 15*time.Minute {
+		t.Errorf("Interval() = %v, want %v", got, 15*time.Minute)
+	}
+}
+
 func TestPolicyDecide(t *testing.T) {
 	policy := newTestPolicy(t, 10, time.Hour)
 	reserveReason := fmt.Sprintf(

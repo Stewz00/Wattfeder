@@ -349,10 +349,10 @@ func TestSimulatorRequiresOneValidCommandPerTelemetryEvent(t *testing.T) {
 		t.Error("Complete() before an observation error = nil, want an error")
 	}
 
-	if _, err := sim.NextObservation(); err != nil {
+	if _, _, err := sim.NextObservation(); err != nil {
 		t.Fatalf("first NextObservation() error = %v", err)
 	}
-	if _, err := sim.NextObservation(); err == nil {
+	if _, _, err := sim.NextObservation(); err == nil {
 		t.Error("second NextObservation() error = nil, want pending-command error")
 	}
 
@@ -360,7 +360,7 @@ func TestSimulatorRequiresOneValidCommandPerTelemetryEvent(t *testing.T) {
 	if err := sim.Complete(&invalidCommand); err == nil {
 		t.Error("Complete(invalid) error = nil, want validation error")
 	}
-	if _, err := sim.NextObservation(); err == nil {
+	if _, _, err := sim.NextObservation(); err == nil {
 		t.Error("NextObservation() after invalid command error = nil, want pending-command error")
 	}
 	if _, err := sim.SimulateDay(); err == nil {
@@ -373,7 +373,7 @@ func TestSimulatorRequiresOneValidCommandPerTelemetryEvent(t *testing.T) {
 	if err := sim.Complete(&validCommand); err == nil {
 		t.Error("second Complete() error = nil, want missing-observation error")
 	}
-	if _, err := sim.NextObservation(); err != nil {
+	if _, _, err := sim.NextObservation(); err != nil {
 		t.Errorf("NextObservation() after valid command error = %v", err)
 	}
 }
@@ -571,7 +571,7 @@ func eventIndexAt(cfg Config, sinceStart time.Duration) int {
 func nextTelemetry(t *testing.T, sim *Simulator) household.Telemetry {
 	t.Helper()
 
-	envelope, err := sim.NextObservation()
+	envelope, _, err := sim.NextObservation()
 	if err != nil {
 		t.Fatalf("NextObservation() error = %v", err)
 	}
