@@ -254,6 +254,43 @@ func TestRunPersistentDayStopsWithoutRedeliveringDuplicate(t *testing.T) {
 	}
 }
 
+func TestRunPersistentDayContinuesToLaterIntervalsAfterDuplicate(t *testing.T) {
+	policy, err := household.NewPolicy(10, time.Hour)
+	if err != nil {
+		t.Fatalf("NewPolicy() error = %v", err)
+	}
+	first := validApplicationTelemetry()
+	second := first
+	second.EventID = "event-002"
+	second.EventTime = first.EventTime.Add(time.Hour)
+
+	sim := &stubSimulation{events: []household.Telemetry{first, second}}
+	repository := &stubRepository{
+		commitStatuses: []persistence.CommitStatus{persistence.CommitDuplicate, persistence.CommitStored},
+	}
+
+	var records []Record
+	if err := RunPersistentDay(t.Context(), sim, policy, repository, func(record Record) error {
+		records = append(records, record)
+		return nil
+	}); err != nil {
+		t.Fatalf("RunPersistentDay() error = %v", err)
+	}
+
+	if sim.nextCalls != 2 {
+		t.Errorf("NextTelemetry() calls = %d, want 2 (processing must continue past the duplicate interval)", sim.nextCalls)
+	}
+	if sim.applyCalls != 1 {
+		t.Errorf("ApplyCommand() calls = %d, want 1 (only the later, non-duplicate event)", sim.applyCalls)
+	}
+	if len(records) != 1 {
+		t.Fatalf("record count = %d, want 1 (the interval after the duplicate must still be recorded)", len(records))
+	}
+	if records[0].EventID != second.EventID {
+		t.Errorf("recorded event ID = %q, want %q", records[0].EventID, second.EventID)
+	}
+}
+
 func TestRunPersistentDayRejectsNilRepository(t *testing.T) {
 	policy, err := household.NewPolicy(10, time.Hour)
 	if err != nil {
@@ -307,17 +344,29 @@ func newTestPolicy(t *testing.T, cfg simulator.Config) household.Policy {
 
 // stubSimulation lets tests force results and failures that the real simulator cannot produce on demand
 type stubSimulation struct {
-	event      household.Telemetry
+	event household.Telemetry
+	// events, when non-empty, overrides event and IntervalsPerDay with one telemetry event per interval
+	events     []household.Telemetry
 	nextErr    error
+	nextCalls  int
 	applyErr   error
 	applyCalls int
 }
 
 func (s *stubSimulation) IntervalsPerDay() int {
+	if len(s.events) > 0 {
+		return len(s.events)
+	}
 	return 1
 }
 
 func (s *stubSimulation) NextTelemetry() (household.Telemetry, error) {
+	if len(s.events) > 0 {
+		event := s.events[s.nextCalls]
+		s.nextCalls++
+		return event, s.nextErr
+	}
+	s.nextCalls++
 	return s.event, s.nextErr
 }
 
@@ -328,36 +377,47 @@ func (s *stubSimulation) ApplyCommand(household.Command) error {
 
 type stubRepository struct {
 	commitStatus persistence.CommitStatus
-	commitErr    error
-	commitCalls  int
-	result       persistence.ProcessingResult
-	beforeCommit func()
+	// commitStatuses, when non-empty, returns one status per call in order, holding the last entry for any further calls
+	commitStatuses []persistence.CommitStatus
+	commitErr      error
+	commitCalls    int
+	result         persistence.ObservationResult
+	beforeCommit   func()
 }
 
 func (r *stubRepository) Migrate(context.Context) error {
 	return nil
 }
 
-func (r *stubRepository) LatestState(context.Context, string) (household.State, bool, error) {
-	return household.State{}, false, nil
+func (r *stubRepository) Snapshot(context.Context, string) (persistence.DeviceSnapshot, bool, error) {
+	return persistence.DeviceSnapshot{}, false, nil
 }
 
 func (r *stubRepository) CommitProcessing(
 	_ context.Context,
-	result persistence.ProcessingResult,
+	result persistence.ObservationResult,
 ) (persistence.CommitStatus, error) {
+	status := r.commitStatus
+	if len(r.commitStatuses) > 0 {
+		index := r.commitCalls
+		if index >= len(r.commitStatuses) {
+			index = len(r.commitStatuses) - 1
+		}
+		status = r.commitStatuses[index]
+	}
+
 	r.commitCalls++
 	r.result = result
 	if r.beforeCommit != nil {
 		r.beforeCommit()
 	}
-	return r.commitStatus, r.commitErr
+	return status, r.commitErr
 }
 
 func validApplicationTelemetry() household.Telemetry {
 	return household.Telemetry{
 		EventID:           "event-001",
-		Timestamp:         time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC),
+		EventTime:         time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC),
 		DeviceID:          "home-001",
 		LoadPowerKW:       1,
 		BatterySOCPercent: 50,

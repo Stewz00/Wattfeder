@@ -109,12 +109,12 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	if err := repository.Migrate(ctx); err != nil {
 		return closeRepository(repository, fmt.Errorf("migrate persistence: %w", err))
 	}
-	restoredState, found, err := repository.LatestState(ctx, cfg.DeviceID)
+	snapshot, found, err := repository.Snapshot(ctx, cfg.DeviceID)
 	if err != nil {
-		return closeRepository(repository, fmt.Errorf("restore latest state: %w", err))
+		return closeRepository(repository, fmt.Errorf("restore device snapshot: %w", err))
 	}
-	if found {
-		cfg.StartingBatterySOCPercent = restoredState.BatterySOCPercent
+	if found && snapshot.State.DeviceID != "" {
+		cfg.StartingBatterySOCPercent = snapshot.State.BatterySOCPercent
 	}
 
 	sim, err := simulator.New(cfg)

@@ -74,16 +74,26 @@ func runDay(
 
 		command := policy.Decide(state)
 		if repository != nil {
-			status, err := repository.CommitProcessing(ctx, persistence.ProcessingResult{
-				Telemetry: persistence.TelemetryRecord{
-					Event:      event,
-					ReceivedAt: time.Now().UTC(),
+			now := time.Now().UTC()
+			committedState := state
+			status, err := repository.CommitProcessing(ctx, persistence.ObservationResult{
+				DeviceID: event.DeviceID,
+				Telemetry: &persistence.TelemetryRecord{
+					Event:             event,
+					ReceivedAt:        now,
+					Disposition:       household.DispositionAccepted,
+					DispositionReason: "",
 				},
-				LatestState: state,
-				Command: persistence.CommandRecord{
+				LatestState: &committedState,
+				Command: &persistence.CommandRecord{
 					EventID:   event.EventID,
 					Command:   command,
-					CreatedAt: time.Now().UTC(),
+					CreatedAt: now,
+				},
+				Health: household.DeviceHealth{
+					Status:         household.HealthOnline,
+					TransitionTime: now,
+					LastContactAt:  now,
 				},
 			})
 			if err != nil {

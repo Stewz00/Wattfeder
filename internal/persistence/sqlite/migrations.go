@@ -57,4 +57,34 @@ CREATE TABLE latest_device_states (
 	CHECK (length(trim(device_id)) > 0)
 );`,
 	},
+	{
+		version: 2,
+		name:    "unreliable telemetry dispositions and device health",
+		sql: `
+ALTER TABLE telemetry_events
+	ADD COLUMN disposition TEXT NOT NULL DEFAULT 'accepted'
+	CHECK (disposition IN ('accepted', 'history_only'));
+
+ALTER TABLE telemetry_events
+	ADD COLUMN disposition_reason TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE device_health (
+	device_id TEXT PRIMARY KEY,
+	status TEXT NOT NULL CHECK (status IN ('online', 'stale', 'offline', 'invalid')),
+	reason TEXT NOT NULL DEFAULT '',
+	transition_time TEXT NOT NULL,
+	last_contact_at TEXT NOT NULL,
+	CHECK (length(trim(device_id)) > 0)
+);
+
+INSERT INTO device_health (device_id, status, reason, transition_time, last_contact_at)
+SELECT
+	latest.device_id,
+	'online',
+	'',
+	telemetry.received_at,
+	telemetry.received_at
+FROM latest_device_states AS latest
+JOIN telemetry_events AS telemetry ON telemetry.event_id = latest.last_event_id;`,
+	},
 }

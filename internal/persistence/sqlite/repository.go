@@ -163,44 +163,80 @@ func appliedMigrations(ctx context.Context, tx *sql.Tx) ([]appliedMigration, err
 	return applied, nil
 }
 
-// LatestState returns the most recently committed state for deviceID.
-func (r *Repository) LatestState(ctx context.Context, deviceID string) (household.State, bool, error) {
-	var state household.State
-	var eventID string
-	var updatedAt string
+// Snapshot returns the most recently committed device snapshot: latest state, its receive
+// time, and durable health. found is false only when the device has never been observed.
+func (r *Repository) Snapshot(ctx context.Context, deviceID string) (persistence.DeviceSnapshot, bool, error) {
+	var (
+		status            string
+		reason            string
+		transitionTime    string
+		lastContactAt     string
+		lastEventID       sql.NullString
+		stateDeviceID     sql.NullString
+		updatedAt         sql.NullString
+		pvPowerKW         sql.NullFloat64
+		loadPowerKW       sql.NullFloat64
+		batterySOCPercent sql.NullFloat64
+		priceEURPerKWh    sql.NullFloat64
+		receivedAt        sql.NullString
+	)
+
 	err := r.db.QueryRowContext(ctx, `
-SELECT last_event_id, device_id, updated_at, pv_power_kw, load_power_kw,
-       battery_soc_percent, price_eur_per_kwh
-FROM latest_device_states
-WHERE device_id = ?`, deviceID).Scan(
-		&eventID,
-		&state.DeviceID,
-		&updatedAt,
-		&state.PVPowerKW,
-		&state.LoadPowerKW,
-		&state.BatterySOCPercent,
-		&state.PriceEURPerKWh,
+SELECT
+    health.status, health.reason, health.transition_time, health.last_contact_at,
+    latest.last_event_id, latest.device_id, latest.updated_at, latest.pv_power_kw,
+    latest.load_power_kw, latest.battery_soc_percent, latest.price_eur_per_kwh,
+    telemetry.received_at
+FROM device_health AS health
+LEFT JOIN latest_device_states AS latest ON latest.device_id = health.device_id
+LEFT JOIN telemetry_events AS telemetry ON telemetry.event_id = latest.last_event_id
+WHERE health.device_id = ?`, deviceID).Scan(
+		&status, &reason, &transitionTime, &lastContactAt,
+		&lastEventID, &stateDeviceID, &updatedAt, &pvPowerKW,
+		&loadPowerKW, &batterySOCPercent, &priceEURPerKWh,
+		&receivedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return household.State{}, false, nil
+		return persistence.DeviceSnapshot{}, false, nil
 	}
 	if err != nil {
-		return household.State{}, false, fmt.Errorf("read latest state for device %q: %w", deviceID, err)
+		return persistence.DeviceSnapshot{}, false, fmt.Errorf("read device snapshot for device %q: %w", deviceID, err)
 	}
 
-	state.LastEventID = household.EventID(eventID)
-	state.UpdatedAt, err = time.Parse(timestampFormat, updatedAt)
-	if err != nil {
-		return household.State{}, false, fmt.Errorf("parse latest state timestamp for device %q: %w", deviceID, err)
+	var snapshot persistence.DeviceSnapshot
+	snapshot.Health.Status = household.DeviceHealthStatus(status)
+	snapshot.Health.Reason = reason
+	if snapshot.Health.TransitionTime, err = time.Parse(timestampFormat, transitionTime); err != nil {
+		return persistence.DeviceSnapshot{}, false, fmt.Errorf("parse health transition time for device %q: %w", deviceID, err)
+	}
+	if snapshot.Health.LastContactAt, err = time.Parse(timestampFormat, lastContactAt); err != nil {
+		return persistence.DeviceSnapshot{}, false, fmt.Errorf("parse health last contact time for device %q: %w", deviceID, err)
 	}
 
-	return state, true, nil
+	if lastEventID.Valid {
+		snapshot.State.LastEventID = household.EventID(lastEventID.String)
+		snapshot.State.DeviceID = stateDeviceID.String
+		snapshot.State.PVPowerKW = pvPowerKW.Float64
+		snapshot.State.LoadPowerKW = loadPowerKW.Float64
+		snapshot.State.BatterySOCPercent = batterySOCPercent.Float64
+		snapshot.State.PriceEURPerKWh = priceEURPerKWh.Float64
+		if snapshot.State.UpdatedAt, err = time.Parse(timestampFormat, updatedAt.String); err != nil {
+			return persistence.DeviceSnapshot{}, false, fmt.Errorf("parse latest state timestamp for device %q: %w", deviceID, err)
+		}
+		if snapshot.ReceivedAt, err = time.Parse(timestampFormat, receivedAt.String); err != nil {
+			return persistence.DeviceSnapshot{}, false, fmt.Errorf("parse latest state received time for device %q: %w", deviceID, err)
+		}
+	}
+
+	return snapshot, true, nil
 }
 
-// CommitProcessing atomically stores one validated processing result.
+// CommitProcessing atomically stores one validated observation result. Telemetry, latest
+// state, and command are optional; health is always written unless the event ID is a
+// duplicate, in which case the commit is a complete no-op.
 func (r *Repository) CommitProcessing(
 	ctx context.Context,
-	result persistence.ProcessingResult,
+	result persistence.ObservationResult,
 ) (persistence.CommitStatus, error) {
 	if err := result.Validate(); err != nil {
 		return 0, fmt.Errorf("validate processing result: %w", err)
@@ -212,23 +248,35 @@ func (r *Repository) CommitProcessing(
 	}
 	defer tx.Rollback()
 
-	stored, err := insertTelemetry(ctx, tx, result.Telemetry)
-	if err != nil {
-		return 0, err
-	}
-	if !stored {
-		if err := tx.Rollback(); err != nil {
-			return 0, fmt.Errorf("roll back duplicate processing transaction: %w", err)
+	if result.Telemetry != nil {
+		stored, err := insertTelemetry(ctx, tx, *result.Telemetry)
+		if err != nil {
+			return 0, err
 		}
-		return persistence.CommitDuplicate, nil
+		if !stored {
+			if err := tx.Rollback(); err != nil {
+				return 0, fmt.Errorf("roll back duplicate processing transaction: %w", err)
+			}
+			return persistence.CommitDuplicate, nil
+		}
 	}
 
-	if err := insertCommand(ctx, tx, result.Command); err != nil {
+	if result.LatestState != nil {
+		applied, err := replaceLatestStateIfNewer(ctx, tx, *result.LatestState)
+		if err != nil {
+			return 0, err
+		}
+		if applied && result.Command != nil {
+			if err := insertCommand(ctx, tx, *result.Command); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	if err := upsertHealth(ctx, tx, result.DeviceID, result.Health); err != nil {
 		return 0, err
 	}
-	if err := replaceLatestState(ctx, tx, result.LatestState); err != nil {
-		return 0, err
-	}
+
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("commit processing transaction: %w", err)
 	}
@@ -241,8 +289,8 @@ func insertTelemetry(ctx context.Context, tx *sql.Tx, record persistence.Telemet
 	result, err := tx.ExecContext(ctx, `
 INSERT INTO telemetry_events (
     event_id, source_timestamp, received_at, device_id, pv_power_kw, load_power_kw,
-    battery_soc_percent, price_eur_per_kwh
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    battery_soc_percent, price_eur_per_kwh, disposition, disposition_reason
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(event_id) DO NOTHING`,
 		string(event.EventID),
 		event.EventTime.Format(timestampFormat),
@@ -252,6 +300,8 @@ ON CONFLICT(event_id) DO NOTHING`,
 		event.LoadPowerKW,
 		event.BatterySOCPercent,
 		event.PriceEURPerKWh,
+		string(record.Disposition),
+		record.DispositionReason,
 	)
 	if err != nil {
 		return false, fmt.Errorf("insert telemetry event %q: %w", event.EventID, err)
@@ -262,6 +312,57 @@ ON CONFLICT(event_id) DO NOTHING`,
 		return false, fmt.Errorf("inspect telemetry insert for event %q: %w", event.EventID, err)
 	}
 	return rowsAffected == 1, nil
+}
+
+// replaceLatestStateIfNewer replaces the durable latest state only when no state exists yet
+// for the device or the incoming state is strictly newer, guarding against out-of-order
+// writes independently of the caller's own ordering decision.
+func replaceLatestStateIfNewer(ctx context.Context, tx *sql.Tx, state household.State) (bool, error) {
+	var currentUpdatedAt string
+	err := tx.QueryRowContext(
+		ctx, "SELECT updated_at FROM latest_device_states WHERE device_id = ?", state.DeviceID,
+	).Scan(&currentUpdatedAt)
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		// no existing state for this device; proceed
+	case err != nil:
+		return false, fmt.Errorf("read current latest state for device %q: %w", state.DeviceID, err)
+	default:
+		current, err := time.Parse(timestampFormat, currentUpdatedAt)
+		if err != nil {
+			return false, fmt.Errorf("parse current latest state timestamp for device %q: %w", state.DeviceID, err)
+		}
+		if !state.UpdatedAt.After(current) {
+			return false, nil
+		}
+	}
+
+	if err := replaceLatestState(ctx, tx, state); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func upsertHealth(ctx context.Context, tx *sql.Tx, deviceID string, health household.DeviceHealth) error {
+	_, err := tx.ExecContext(ctx, `
+INSERT INTO device_health (device_id, status, reason, transition_time, last_contact_at)
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(device_id) DO UPDATE SET
+    status = excluded.status,
+    reason = excluded.reason,
+    transition_time = excluded.transition_time,
+    last_contact_at = excluded.last_contact_at`,
+		deviceID,
+		string(health.Status),
+		health.Reason,
+		health.TransitionTime.Format(timestampFormat),
+		health.LastContactAt.Format(timestampFormat),
+	)
+	if err != nil {
+		return fmt.Errorf("upsert device health for device %q: %w", deviceID, err)
+	}
+	return nil
 }
 
 func insertCommand(ctx context.Context, tx *sql.Tx, record persistence.CommandRecord) error {
