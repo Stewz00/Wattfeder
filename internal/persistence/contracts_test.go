@@ -25,11 +25,11 @@ func TestProcessingResultValidate(t *testing.T) {
 			wantErr: "event ID",
 		},
 		{
-			name: "non-UTC telemetry timestamp",
+			name: "non-UTC telemetry event time",
 			modify: func(result *ProcessingResult) {
-				result.Telemetry.Event.Timestamp = result.Telemetry.Event.Timestamp.In(time.FixedZone("CEST", 2*60*60))
+				result.Telemetry.Event.EventTime = result.Telemetry.Event.EventTime.In(time.FixedZone("CEST", 2*60*60))
 			},
-			wantErr: "telemetry timestamp must use UTC",
+			wantErr: "telemetry event time must use UTC",
 		},
 		{
 			name: "zero received time",
@@ -91,7 +91,7 @@ func validProcessingResult(t *testing.T) ProcessingResult {
 
 	event := household.Telemetry{
 		EventID:           "event-001",
-		Timestamp:         time.Date(2026, time.August, 8, 12, 0, 0, 0, time.UTC),
+		EventTime:         time.Date(2026, time.August, 8, 12, 0, 0, 0, time.UTC),
 		DeviceID:          "home-001",
 		PVPowerKW:         4.8,
 		LoadPowerKW:       1.9,
@@ -106,7 +106,7 @@ func validProcessingResult(t *testing.T) ProcessingResult {
 	return ProcessingResult{
 		Telemetry: TelemetryRecord{
 			Event:      event,
-			ReceivedAt: event.Timestamp.Add(time.Second),
+			ReceivedAt: event.EventTime.Add(time.Second),
 		},
 		LatestState: state,
 		Command: CommandRecord{
@@ -116,7 +116,7 @@ func validProcessingResult(t *testing.T) ProcessingResult {
 				PowerKW:  2.9,
 				Reason:   "PV production exceeds household load",
 			},
-			CreatedAt: event.Timestamp.Add(2 * time.Second),
+			CreatedAt: event.EventTime.Add(2 * time.Second),
 		},
 	}
 }

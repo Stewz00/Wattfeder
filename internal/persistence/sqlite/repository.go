@@ -245,7 +245,7 @@ INSERT INTO telemetry_events (
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(event_id) DO NOTHING`,
 		string(event.EventID),
-		event.Timestamp.Format(timestampFormat),
+		event.EventTime.Format(timestampFormat),
 		record.ReceivedAt.Format(timestampFormat),
 		event.DeviceID,
 		event.PVPowerKW,

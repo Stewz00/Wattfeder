@@ -120,7 +120,7 @@ func (s *Simulator) NextTelemetry() (household.Telemetry, error) {
 
 	event := household.Telemetry{
 		EventID:           simulatedEventID(s.cfg.DeviceID, s.currentTime),
-		Timestamp:         s.currentTime,
+		EventTime:         s.currentTime,
 		DeviceID:          s.cfg.DeviceID,
 		PVPowerKW:         s.pvPowerKW(s.currentTime, s.dailyPVFactor),
 		LoadPowerKW:       s.loadPowerKW(s.currentTime, s.dailyLoadFactor),

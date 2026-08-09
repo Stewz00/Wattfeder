@@ -21,7 +21,7 @@ func TestTelemetryValidate(t *testing.T) {
 			event.EventID = " event-001 "
 		}, wantErr: true},
 		{name: "timestamp before Unix epoch is valid", modify: func(event *Telemetry) {
-			event.Timestamp = time.Date(1960, time.January, 1, 0, 0, 0, 0, time.UTC)
+			event.EventTime = time.Date(1960, time.January, 1, 0, 0, 0, 0, time.UTC)
 		}},
 		{name: "device ID with surrounding whitespace is valid", modify: func(event *Telemetry) {
 			event.DeviceID = " home-001 "
@@ -33,7 +33,7 @@ func TestTelemetryValidate(t *testing.T) {
 		{name: "smallest positive price is valid", modify: func(event *Telemetry) {
 			event.PriceEURPerKWh = math.SmallestNonzeroFloat64
 		}},
-		{name: "timestamp is zero", modify: func(event *Telemetry) { event.Timestamp = time.Time{} }, wantErr: true},
+		{name: "timestamp is zero", modify: func(event *Telemetry) { event.EventTime = time.Time{} }, wantErr: true},
 		{name: "device ID is empty", modify: func(event *Telemetry) { event.DeviceID = "" }, wantErr: true},
 		{name: "device ID contains only whitespace", modify: func(event *Telemetry) {
 			event.DeviceID = " \t\n"
@@ -93,7 +93,7 @@ func TestTelemetryValidate(t *testing.T) {
 func validTelemetry() Telemetry {
 	return Telemetry{
 		EventID:           "event-001",
-		Timestamp:         time.Date(2026, time.August, 7, 12, 0, 0, 0, time.UTC),
+		EventTime:         time.Date(2026, time.August, 7, 12, 0, 0, 0, time.UTC),
 		DeviceID:          "home-001",
 		PVPowerKW:         4.8,
 		LoadPowerKW:       1.9,

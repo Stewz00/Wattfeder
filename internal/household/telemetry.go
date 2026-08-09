@@ -14,7 +14,7 @@ type EventID string
 // Power values use kW, battery state of charge uses percent, and electricity price uses EUR/kWh.
 type Telemetry struct {
 	EventID           EventID
-	Timestamp         time.Time
+	EventTime         time.Time
 	DeviceID          string
 	PVPowerKW         float64
 	LoadPowerKW       float64
@@ -32,8 +32,8 @@ func (t Telemetry) Validate() error {
 		return errors.New("event ID must not have surrounding whitespace")
 	}
 
-	if t.Timestamp.IsZero() {
-		return errors.New("timestamp must not be zero")
+	if t.EventTime.IsZero() {
+		return errors.New("event time must not be zero")
 	}
 
 	if strings.TrimSpace(t.DeviceID) == "" {

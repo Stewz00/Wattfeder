@@ -57,8 +57,8 @@ func TestSimulatorSimulateDay(t *testing.T) {
 	seenEventIDs := make(map[household.EventID]struct{}, len(events))
 	for i, event := range events {
 		wantTimestamp := cfg.Start.UTC().Add(time.Duration(i) * cfg.Interval)
-		if !event.Timestamp.Equal(wantTimestamp) {
-			t.Errorf("event %d timestamp = %v, want %v", i, event.Timestamp, wantTimestamp)
+		if !event.EventTime.Equal(wantTimestamp) {
+			t.Errorf("event %d timestamp = %v, want %v", i, event.EventTime, wantTimestamp)
 		}
 		if event.DeviceID != cfg.DeviceID {
 			t.Errorf("event %d device ID = %q, want %q", i, event.DeviceID, cfg.DeviceID)
@@ -138,8 +138,8 @@ func TestSimulatorSimulateDayAdvancesToNextDay(t *testing.T) {
 	}
 
 	wantFirstTimestamp := cfg.Start.UTC().Add(24 * time.Hour)
-	if !secondDay[0].Timestamp.Equal(wantFirstTimestamp) {
-		t.Errorf("second day starts at %v, want %v", secondDay[0].Timestamp, wantFirstTimestamp)
+	if !secondDay[0].EventTime.Equal(wantFirstTimestamp) {
+		t.Errorf("second day starts at %v, want %v", secondDay[0].EventTime, wantFirstTimestamp)
 	}
 
 	lastEvent := firstDay[len(firstDay)-1]
@@ -334,8 +334,8 @@ func TestSimulatorAppliesControlCommandsToBatteryState(t *testing.T) {
 			if math.Abs(second.BatterySOCPercent-tt.wantSOCPercent) > floatingPointTolerance {
 				t.Errorf("SOC after %s command = %v, want %v", tt.name, second.BatterySOCPercent, tt.wantSOCPercent)
 			}
-			if !second.Timestamp.Equal(first.Timestamp.Add(cfg.Interval)) {
-				t.Errorf("timestamp after command = %v, want %v", second.Timestamp, first.Timestamp.Add(cfg.Interval))
+			if !second.EventTime.Equal(first.EventTime.Add(cfg.Interval)) {
+				t.Errorf("timestamp after command = %v, want %v", second.EventTime, first.EventTime.Add(cfg.Interval))
 			}
 		})
 	}
@@ -413,7 +413,7 @@ func TestSimulatorPVProfile(t *testing.T) {
 
 	events := simulateDay(t, sim)
 	for i, event := range events {
-		hour := float64(event.Timestamp.Hour()) + float64(event.Timestamp.Minute())/60
+		hour := float64(event.EventTime.Hour()) + float64(event.EventTime.Minute())/60
 		isDaylight := hour > 6 && hour < 18
 		hasValidDaylightPower := !math.IsNaN(event.PVPowerKW) &&
 			!math.IsInf(event.PVPowerKW, 0) &&

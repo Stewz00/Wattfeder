@@ -103,7 +103,7 @@ func runDay(
 
 		record := Record{
 			EventID:           event.EventID,
-			Timestamp:         event.Timestamp,
+			Timestamp:         event.EventTime,
 			DeviceID:          event.DeviceID,
 			PVPowerKW:         event.PVPowerKW,
 			LoadPowerKW:       event.LoadPowerKW,

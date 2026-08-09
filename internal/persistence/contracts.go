@@ -36,7 +36,7 @@ func (r ProcessingResult) Validate() error {
 	if err := r.Telemetry.Event.Validate(); err != nil {
 		return fmt.Errorf("invalid telemetry record: %w", err)
 	}
-	if err := validateUTCTime("telemetry timestamp", r.Telemetry.Event.Timestamp); err != nil {
+	if err := validateUTCTime("telemetry event time", r.Telemetry.Event.EventTime); err != nil {
 		return err
 	}
 	if err := validateUTCTime("telemetry received time", r.Telemetry.ReceivedAt); err != nil {
