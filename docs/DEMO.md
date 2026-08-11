@@ -33,7 +33,7 @@ seven fault kinds in order: `missing_value`, `invalid_measurement`,
 surrounded by ordinary deliveries. It checks the resulting decision,
 disposition, and health-status sequence against expected values for every
 interval — including the intervals that produce no decision at all. See
-[ADR-008](engineering/adr/ADR-008-unreliable-telemetry-disposition-and-health.md)
+[ADR-004](engineering/adr/ADR-004-observation-disposition-and-device-health.md)
 for what each fault is expected to do.
 
 ## Components started
@@ -55,10 +55,17 @@ make demo
 To run the unreliable-telemetry scenario instead:
 
 ```bash
-go run ./cmd/wattfeder -scenario scenarios/unreliable-telemetry-day.json
+make demo-faults
 ```
 
 Go is the only runtime tool required.
+
+In the fault run, watch the `disposition` and `health_status` fields. An
+`observation_ignored` line is an interval that produced no telemetry and no
+command: a rejected measurement, a missing heartbeat, or an unavailable
+source. A `telemetry_produced` line with `"state_updated":false` is telemetry
+that was kept but did not become the latest state. Both demos end with
+`"expected_result":"matched"`.
 
 ## What happens
 
