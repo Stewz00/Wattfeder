@@ -1,42 +1,69 @@
 # Wattfeder
 
-Wattfeder is a deterministic Go simulation of household energy flows and
-battery control. It generates photovoltaic production, household load,
-electricity price, and battery telemetry for one 24-hour period, then chooses a
-charge, discharge, or idle command for each interval.
+Wattfeder is a Go edge agent for a household energy system. It reads telemetry
+from a household — solar production, load, battery charge, electricity price —
+and decides every interval whether to charge, discharge, or idle the battery.
 
-The current version runs one household locally, validates telemetry, evolves
-battery state, persists telemetry and commands in SQLite, restores the latest
-battery state after restart, and emits newline-delimited JSON.
+Telemetry in the real world is not clean. It arrives twice, arrives late,
+arrives out of order, arrives broken, or does not arrive at all. Wattfeder is
+built around that fact. Every observation gets one explicit outcome, and one
+bad observation never stops the ones after it.
 
-## Run
+Current version: **v0.3**. One household, one process, local SQLite storage.
+There is no cloud service yet.
 
-Wattfeder requires Go 1.26.5. Go downloads the pure-Go SQLite dependency when
-needed.
+## Try it in one command
 
 ```bash
-make demo   # Run the fixed four-step scenario
-make run    # Run the configurable 24-hour simulation
-make check  # Format, analyze, test, and build the project
+make demo         # A clean day: four intervals, four decisions
+make demo-faults  # A day with duplicate, late, broken, and missing telemetry
 ```
 
-Run `go run ./cmd/wattfeder -help` to list the available simulation and database
-flags. The normal application stores state in `wattfeder.db` by default; the
-fixed demo remains non-persistent.
+Both need Go 1.26.5 and nothing else. No Docker, no database server, no network.
+They print newline-delimited JSON and check the result against the expected
+sequence. See [Demo](docs/DEMO.md) for what each line means.
 
-## Model boundaries
+```bash
+make run          # The configurable 24-hour simulation, stored in wattfeder.db
+make check        # Format, analyze, test, and build
+```
 
-Profiles are synthetic and deterministic, not forecasts. The battery model
-assumes perfect efficiency and no power limit; the grid supplies unmet demand
-and absorbs unused photovoltaic generation.
+## How it works
+
+```text
+Simulator → observation → classify → store → command → back to the battery
+```
+
+1. The **simulator** produces one observation per interval. It can inject
+   faults on purpose, from a scenario file.
+2. **`household.Classify`** gives that observation exactly one disposition:
+   `accepted`, `history_only`, `duplicate`, `rejected`, `missing`, or
+   `unavailable`. It also gives the device one health status: `online`,
+   `stale`, `offline`, or `invalid`.
+3. **SQLite** stores the telemetry, the latest state, the command, and the
+   health in one transaction. A repeated event ID changes nothing.
+4. The **policy** produces a command, but only for a fresh accepted event.
+   Late or historical telemetry never commands a battery.
+5. The run **continues** to the next interval, whatever happened.
+
+Latest state is ordered by event time, never by arrival. Old telemetry is kept
+as history but can never overwrite newer state.
+
+## What is deliberately not here
+
+No forecasts: the profiles are synthetic and deterministic. The battery model
+assumes perfect efficiency and no power limit. The grid absorbs any surplus and
+supplies any deficit. There is no network API, no cloud service, and no real
+hardware. Each of those arrives in a later milestone, or not at all.
 
 ## Documentation
 
-- [Setup](docs/SETUP.md)
-- [Demo](docs/DEMO.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Model](docs/MODEL.md)
-- [Roadmap](docs/roadmap.md)
+- [Setup](docs/SETUP.md) — install and run
+- [Demo](docs/DEMO.md) — the two scenarios, line by line
+- [Architecture](docs/ARCHITECTURE.md) — components and data flow
+- [Model](docs/MODEL.md) — the energy and battery model
+- [Decision records](docs/engineering/adr/) — why the system is built this way
+- [Roadmap](docs/roadmap.md) — what is done and what comes next
 
 ## License
 
