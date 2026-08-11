@@ -22,8 +22,8 @@ possible directions rather than fixed commitments.
 | --- | --- |
 | v0.1 — Single Household Simulation | Complete |
 | v0.2 — Persistent Device State | Complete |
-| v0.3 — Unreliable Telemetry | Current |
-| v0.4 — Single-Site Edge Runtime | Planned |
+| v0.3 — Unreliable Telemetry | Complete |
+| v0.4 — Single-Site Edge Runtime | Current |
 | v0.5 — Observability and Local Operations | Planned |
 | v0.6 — Cloud Ingestion Service | Planned |
 | v0.7 — Offline-Capable Edge Delivery | Planned |
@@ -32,9 +32,11 @@ possible directions rather than fixed commitments.
 | v1.0 — Portfolio Readiness | Planned |
 
 The application now persists telemetry, commands, and latest device state in
-SQLite, restores battery state after restart, rejects duplicate durable events,
-and commits each processing result before applying its command. The current
-milestone defines behavior for unreliable telemetry.
+SQLite, restores battery state after restart, and commits each processing result
+before applying its command. It also classifies every observation, so duplicate,
+out-of-order, delayed, invalid, missing, and unavailable telemetry each have
+defined behavior and a durable device-health state. The next milestone turns the
+finite simulation run into a long-running edge runtime.
 
 Everything up to and including v0.5 builds one edge agent. v0.6 introduces the
 cloud boundary, v0.7 makes delivery survive disconnection, v0.8 measures the
@@ -259,8 +261,8 @@ Preserve device state and decision history across process restarts.
 
 ## v0.3 — Unreliable Telemetry
 
-**Status:** Current. Failure semantics and deterministic fault cases are the
-next implementation focus.
+**Status:** Complete. Disposition rules, device health, deterministic fault
+injection, and continuation after bad observations are implemented and verified.
 
 ### Goal
 
@@ -331,15 +333,31 @@ in v0.6.
 * A delayed event cannot overwrite a newer latest state.
 * The disposition matrix is documented and matches the implemented behavior.
 
+### Completion evidence
+
+* `household.Classify` is one pure domain function that gives every observation
+  exactly one disposition and one health status.
+* Telemetry carries both event time and receive time. Latest state is ordered
+  strictly by event time, and the SQLite repository re-checks that rule inside
+  its own transaction.
+* The simulator injects seven deterministic fault kinds from a scenario file.
+* `scenarios/unreliable-telemetry-day.json` runs all seven and verifies the
+  decision, disposition, and health sequence of every interval.
+* Every ignored or rejected interval still emits one record with its reason, and
+  the run continues.
+* `make check` passes across seven packages.
+
 ### Engineering records
 
-* ADR — disposition of duplicate, out-of-order, delayed, invalid, and incomplete
-  telemetry, including the ordering key and the event-time/receive-time split.
-* ADR — store old telemetry without allowing stale latest-state updates.
+* The disposition matrix, ordering key, event-time/receive-time split, and health
+  semantics are recorded in
+  [ADR-004](engineering/adr/ADR-004-observation-disposition-and-device-health.md).
 
 ---
 
 ## v0.4 — Single-Site Edge Runtime
+
+**Status:** Current.
 
 ### Goal
 
@@ -390,13 +408,12 @@ for one household or energy site.
 
 ### Engineering records
 
-* ADR — keep the simulator as a deterministic telemetry adapter behind the
-  `TelemetrySource` contract.
-* ADR — one edge agent per household; fleet scaling belongs to cloud ingestion.
-* ADR — SQLite single-writer throughput is acceptable for one household agent.
-  Revisit when one agent must process multiple independent sites, telemetry
-  frequency exceeds measured local capacity, or persistence latency interferes
-  with control processing.
+The deployment model this milestone implements is already recorded as
+[ADR-001](engineering/adr/ADR-001-one-edge-agent-per-site.md), and the domain
+boundary it enforces as
+[ADR-002](engineering/adr/ADR-002-local-control-independent-of-cloud.md). No new
+record is planned unless SQLite single-writer throughput turns out to be
+contested by measurement.
 
 ---
 
@@ -525,8 +542,9 @@ per-event outcome
 
 ### Engineering records
 
-* ADR — PostgreSQL for centralized persistence.
-* ADR — HTTP batches before introducing a message broker.
+The ingestion contract and its storage choice are recorded only if a credible
+alternative is actually rejected during implementation. The delivery semantics
+they serve belong to ADR-005 in v0.7.
 
 ---
 
@@ -603,9 +621,14 @@ Outbox entry marked delivered
 
 ### Engineering records
 
-* ADR — at-least-once delivery with idempotent processing.
-* ADR — SQLite for edge durability and the offline outbox.
-* ADR — keep control decisions local at the edge.
+* ADR-005 — deliver through a durable outbox with at-least-once semantics. It
+  covers SQLite as the durable backlog, HTTP batch delivery, retry and backoff,
+  idempotent cloud ingestion, lost acknowledgements, bounded backlog and
+  retention, and why no message broker is justified yet. Write it after the
+  outbox exists, not before.
+
+Local control is already recorded as
+[ADR-002](engineering/adr/ADR-002-local-control-independent-of-cloud.md).
 
 ---
 
@@ -751,8 +774,8 @@ it.
 
 ### Engineering records
 
-* ADR — Azure Container Apps instead of AKS.
-* ADR — Pulumi for reviewable, reproducible infrastructure.
+Hosting and infrastructure-tool choices are documented in the deployment guide.
+They become a record only if the exclusions above are genuinely challenged.
 
 ---
 
@@ -798,20 +821,20 @@ An ADR is worth writing when a decision had at least two credible alternatives
 and a real downside. Each one records context, decision, rejected alternatives,
 consequences, and the measurable condition that would justify revisiting it.
 
-Records already justified by completed work:
+The set is capped on purpose. Written so far, in
+[`engineering/adr/`](engineering/adr/):
 
-* atomically persist each processing result before applying its command (v0.2);
-* producer-owned event IDs as the basis for idempotent processing (v0.2);
-* embedded SQLite for the single-process persistence milestone (v0.2).
+* [ADR-001](engineering/adr/ADR-001-one-edge-agent-per-site.md) — one edge agent
+  per household or site;
+* [ADR-002](engineering/adr/ADR-002-local-control-independent-of-cloud.md) —
+  control stays local and independent of the cloud;
+* [ADR-003](engineering/adr/ADR-003-atomic-persistence-before-command.md) —
+  persist each observation atomically before applying its command;
+* [ADR-004](engineering/adr/ADR-004-observation-disposition-and-device-health.md)
+  — classify every observation and never regress latest state.
 
-These three are documented retrospectively and should be marked as such.
-
-Remaining records are listed under the milestone that forces the decision. The
-recommended set in [`engineering/GOALS.md`](engineering/GOALS.md) is the starting
-point, extended by the two records the deployment model requires: one edge agent
-per household with fleet scaling in the cloud, and SQLite single-writer
-throughput as sufficient for one household agent. Numbering is assigned when a
-record is written.
+One more is planned and must not be written before its implementation exists:
+ADR-005 for durable at-least-once delivery (v0.7).
 
 Postmortems describe failures that were actually encountered during
 implementation, testing, or a controlled incident exercise. A planned exercise
@@ -912,23 +935,23 @@ contribute to its exit criteria should normally be postponed.
 The current focus is:
 
 ```text
-v0.3 — Unreliable Telemetry
+v0.4 — Single-Site Edge Runtime
 ```
 
 The next implementation sequence is:
 
-1. Define accept, reject, history-only, and state-update behavior for each
-   unreliable telemetry case, and record it as a disposition matrix.
-2. Separate event time from receive time so delayed events remain orderable.
-3. Reject or isolate out-of-order, delayed, missing, and invalid measurements
-   without corrupting the latest valid state.
-4. Add deterministic simulator fault injection for every supported failure.
-5. Introduce online, stale, offline, and invalid device health states.
-6. Make failure decisions observable with structured reasons.
-7. Cover every supported failure mode with automated tests.
+1. Introduce the `TelemetrySource` and `CommandSink` contracts and move the
+   simulator behind them.
+2. Replace the fixed one-day loop with a context-driven, long-running loop.
+3. Bound any in-memory handoff and define what happens when the bound is
+   reached.
+4. Make agent identity and database path configurable per instance.
+5. Guarantee shutdown does not abandon an event already accepted for
+   persistence.
+6. Add an automated import check that fails when a domain package imports a
+   transport or storage package.
 
-The long-running edge runtime, the cloud ingestion service, the offline outbox,
-distributed tracing, the fleet load test, and Azure deployment remain outside the
-current milestone. Kubernetes, Kafka, a frontend,
-and real hardware remain outside the project unless a measured requirement makes
-them necessary.
+The cloud ingestion service, the offline outbox, distributed tracing, the fleet
+load test, and Azure deployment remain outside the current milestone.
+Kubernetes, Kafka, a frontend, and real hardware remain outside the project
+unless a measured requirement makes them necessary.
