@@ -33,7 +33,7 @@ policy adds a decision, command power, and reason when the event was accepted
 and its command was not suppressed. The simulator derives a stable event ID
 from the device ID and UTC event time so replaying the same interval retains
 its identity, unless a fault schedule explicitly overrides the identity or
-timing of that interval's delivery (see [ADR-008](engineering/adr/ADR-008-unreliable-telemetry-disposition-and-health.md)
+timing of that interval's delivery (see [ADR-004](engineering/adr/ADR-004-observation-disposition-and-device-health.md)
 for how a delayed, duplicate, or out-of-order delivery is classified).
 
 Power uses kilowatts. Energy uses kilowatt-hours. The model treats sampled power

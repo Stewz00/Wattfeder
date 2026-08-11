@@ -164,19 +164,24 @@ limit. It must not silently pretend that capacity is unlimited.
 
 ## Engineering Decision Records
 
-Important architectural choices should be captured as short ADRs.
+Important architectural choices should be captured as short ADRs. The set is
+kept deliberately small. A record is written only when a decision had at least
+two credible alternatives and a real cost, and only after the behaviour it
+describes exists.
 
-Recommended records:
+Recorded, in [`adr/`](adr/):
 
 ```text
-ADR-001 — Keep control decisions local at the edge
-ADR-002 — Use at-least-once delivery with idempotent processing
-ADR-003 — Use SQLite for edge durability
-ADR-004 — Use PostgreSQL for centralized persistence
-ADR-005 — Use HTTP batches before introducing a message broker
-ADR-006 — Keep the simulator as a deterministic telemetry adapter
-ADR-007 — Deploy with Azure Container Apps instead of AKS
-ADR-008 — Store old telemetry without allowing stale latest-state updates
+ADR-001 — Deploy one edge agent per household or site
+ADR-002 — Keep control local and independent of cloud infrastructure
+ADR-003 — Persist each observation atomically before applying its command
+ADR-004 — Classify every observation and never regress latest state
+```
+
+Planned, to be written after the corresponding implementation:
+
+```text
+ADR-005 — Deliver through a durable outbox with at-least-once semantics (v0.7)
 ```
 
 Each ADR should contain:

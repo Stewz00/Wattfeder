@@ -57,7 +57,7 @@ The default command writes one flat JSON record per interval. The demo
 writes separate progress records so each step is visible. Neither one stops
 early for a duplicate, historical, delayed, rejected, missing, or
 unavailable observation — see
-[ADR-008](engineering/adr/ADR-008-unreliable-telemetry-disposition-and-health.md)
+[ADR-004](engineering/adr/ADR-004-observation-disposition-and-device-health.md)
 for why.
 
 ## Storage
@@ -68,7 +68,7 @@ device state, and durable device health. Event IDs link the durable records
 and let the adapter reject duplicate processing without changing existing
 data, including health. See the
 [persistence design](engineering/PERSISTENCE-DESIGN.md) for the schema and
-transaction semantics, and [ADR-008](engineering/adr/ADR-008-unreliable-telemetry-disposition-and-health.md)
+transaction semantics, and [ADR-004](engineering/adr/ADR-004-observation-disposition-and-device-health.md)
 for the disposition and health rules it enforces.
 
 The normal CLI opens `wattfeder.db` by default, applies pending migrations, and

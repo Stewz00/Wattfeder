@@ -6,7 +6,7 @@ The persistence records, repository contract, SQLite adapter, two ordered
 migrations, startup snapshot restore, and durable observation-processing
 integration are implemented, including disposition tracking and durable
 device health. See
-[ADR-008](adr/ADR-008-unreliable-telemetry-disposition-and-health.md) for the
+[ADR-004](adr/ADR-004-observation-disposition-and-device-health.md) for the
 disposition matrix, ordering key, and health semantics this design persists.
 
 ## Event identity
@@ -30,7 +30,7 @@ The logical records are defined in `internal/persistence` independently of a
 database schema. `ObservationResult` is the atomic outcome of processing one
 interval's observation: telemetry, latest state, and command are each
 optional, and are present or absent according to the observation's
-disposition (see ADR-008). Device health is always required.
+disposition (see ADR-004). Device health is always required.
 
 | Record | Identity and relationship | Stored values |
 | --- | --- | --- |
