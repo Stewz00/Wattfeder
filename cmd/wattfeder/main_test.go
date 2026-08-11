@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,7 +19,7 @@ import (
 
 func TestRunEmitsJSONRecords(t *testing.T) {
 	var output bytes.Buffer
-	if err := runIsolated(t, context.Background(), []string{"-interval", "24h"}, &output); err != nil {
+	if err := runIsolated(t, context.Background(), []string{"-interval", "24h", "-pace", "fast", "-intervals", "1"}, &output); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
 
@@ -55,6 +57,8 @@ func TestRunMapsConfigurationFlagsToOutput(t *testing.T) {
 		"-start", "2026-08-08T06:30:00+02:00",
 		"-device-id", "home-test",
 		"-starting-battery-soc-percent", "73",
+		"-pace", "fast",
+		"-intervals", "1",
 	}
 	if err := runIsolated(t, context.Background(), args, &output); err != nil {
 		t.Fatalf("run() error = %v", err)
@@ -77,7 +81,7 @@ func TestRunMapsConfigurationFlagsToOutput(t *testing.T) {
 }
 
 func TestRunIsDeterministic(t *testing.T) {
-	args := []string{"-interval", "24h", "-seed", "123"}
+	args := []string{"-interval", "24h", "-seed", "123", "-pace", "fast", "-intervals", "1"}
 	var first bytes.Buffer
 	var second bytes.Buffer
 
@@ -180,12 +184,18 @@ func TestRunRejectsInvalidArguments(t *testing.T) {
 		{name: "invalid duration", args: []string{"-interval", "tomorrow"}, wantErr: "invalid value"},
 		{name: "partial final interval", args: []string{"-interval", "7m"}, wantErr: "must divide"},
 		{name: "blank device ID", args: []string{"-device-id", "  "}, wantErr: "device ID"},
+		{name: "blank agent ID", args: []string{"-agent-id", "  "}, wantErr: "agent ID"},
 		{name: "zero battery capacity", args: []string{"-battery-capacity-kwh", "0"}, wantErr: "battery capacity"},
 		{name: "blank database path", args: []string{"-database", " "}, wantErr: "SQLite path"},
+		{name: "invalid pace", args: []string{"-pace", "sideways", "-intervals", "1"}, wantErr: "invalid -pace value"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// The default -database path is relative, so a rejected run is checked from a
+			// scratch directory rather than the package's own.
+			t.Chdir(t.TempDir())
+
 			err := run(context.Background(), tt.args, &bytes.Buffer{})
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("run() error = %v, want error containing %q", err, tt.wantErr)
@@ -194,9 +204,32 @@ func TestRunRejectsInvalidArguments(t *testing.T) {
 	}
 }
 
+func TestRunRejectsArgumentsWithoutCreatingADatabase(t *testing.T) {
+	// Every flag is settled before persistence is opened, so an argument the agent was always
+	// going to reject leaves nothing behind in the directory it was started from.
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	if err := run(context.Background(), []string{"-pace", "sideways"}, &bytes.Buffer{}); err == nil {
+		t.Fatal("run() error = nil, want an invalid -pace error")
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	if len(entries) != 0 {
+		names := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			names = append(names, entry.Name())
+		}
+		t.Errorf("a rejected run left %v behind, want an untouched directory", names)
+	}
+}
+
 func TestRunReturnsOutputError(t *testing.T) {
 	wantErr := errors.New("output unavailable")
-	err := runIsolated(t, context.Background(), []string{"-interval", "24h"}, errorWriter{err: wantErr})
+	err := runIsolated(t, context.Background(), []string{"-interval", "24h", "-pace", "fast", "-intervals", "1"}, errorWriter{err: wantErr})
 	if !errors.Is(err, wantErr) {
 		t.Errorf("run() error = %v, want wrapped output error %v", err, wantErr)
 	}
@@ -244,6 +277,8 @@ func TestRunRestoresLatestBatteryState(t *testing.T) {
 		"-interval", "12h",
 		"-start", "2026-08-07T00:00:00Z",
 		"-starting-battery-soc-percent", "73",
+		"-pace", "fast",
+		"-intervals", "2",
 	}
 	var firstOutput bytes.Buffer
 	if err := run(t.Context(), firstArgs, &firstOutput); err != nil {
@@ -260,6 +295,8 @@ func TestRunRestoresLatestBatteryState(t *testing.T) {
 		"-interval", "24h",
 		"-start", "2026-08-08T00:00:00Z",
 		"-starting-battery-soc-percent", "1",
+		"-pace", "fast",
+		"-intervals", "1",
 	}
 	var secondOutput bytes.Buffer
 	if err := run(t.Context(), secondArgs, &secondOutput); err != nil {
@@ -285,7 +322,7 @@ func TestRunRestoresLatestBatteryState(t *testing.T) {
 
 func TestRunReportsDuplicatesWithoutRedelivering(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "wattfeder.db")
-	args := []string{"-database", databasePath, "-interval", "24h"}
+	args := []string{"-database", databasePath, "-interval", "24h", "-pace", "fast", "-intervals", "1"}
 	var firstOutput bytes.Buffer
 	if err := run(t.Context(), args, &firstOutput); err != nil {
 		t.Fatalf("first run() error = %v", err)
@@ -328,6 +365,60 @@ func TestRunReturnsPersistenceStartupErrorBeforeOutput(t *testing.T) {
 	}
 	if output.Len() != 0 {
 		t.Errorf("run() output = %q, want none after persistence startup failure", output.String())
+	}
+}
+
+func TestRunTwoIndependentAgentsDoNotCrossContaminate(t *testing.T) {
+	dir := t.TempDir()
+	databaseA := filepath.Join(dir, "agent-a.db")
+	databaseB := filepath.Join(dir, "agent-b.db")
+
+	argsFor := func(agentID, deviceID, databasePath string) []string {
+		return []string{
+			"-agent-id", agentID,
+			"-device-id", deviceID,
+			"-database", databasePath,
+			"-interval", "1h",
+			"-pace", "fast",
+			"-intervals", "3",
+		}
+	}
+
+	var outputA, outputB bytes.Buffer
+	var errA, errB error
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		errA = run(t.Context(), argsFor("agent-a", "home-a", databaseA), &outputA)
+	}()
+	go func() {
+		defer wg.Done()
+		errB = run(t.Context(), argsFor("agent-b", "home-b", databaseB), &outputB)
+	}()
+	wg.Wait()
+
+	if errA != nil {
+		t.Fatalf("agent A run() error = %v", errA)
+	}
+	if errB != nil {
+		t.Fatalf("agent B run() error = %v", errB)
+	}
+
+	recordsA := decodeRecords(t, &outputA)
+	recordsB := decodeRecords(t, &outputB)
+	if len(recordsA) != 3 || len(recordsB) != 3 {
+		t.Fatalf("record counts = %d, %d, want 3 and 3", len(recordsA), len(recordsB))
+	}
+	for i, record := range recordsA {
+		if record.AgentID != "agent-a" || record.DeviceID != "home-a" {
+			t.Errorf("agent A record %d = (%q, %q), want (%q, %q)", i, record.AgentID, record.DeviceID, "agent-a", "home-a")
+		}
+	}
+	for i, record := range recordsB {
+		if record.AgentID != "agent-b" || record.DeviceID != "home-b" {
+			t.Errorf("agent B record %d = (%q, %q), want (%q, %q)", i, record.AgentID, record.DeviceID, "agent-b", "home-b")
+		}
 	}
 }
 

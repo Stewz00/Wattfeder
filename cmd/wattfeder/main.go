@@ -46,6 +46,10 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	priceBase := flags.Float64("price-base-eur-kwh", 0.30, "base electricity price in EUR/kWh")
 	databasePath := flags.String("database", "wattfeder.db", "path to the SQLite database")
 	scenarioPath := flags.String("scenario", "", "path to a deterministic demo scenario in JSON format")
+	agentID := flags.String("agent-id", "agent-001", "identity of this installed agent instance")
+	intervals := flags.Int("intervals", 0, "number of intervals to process; 0 runs until stopped")
+	pace := flags.String("pace", "real", `"real" waits one interval between observations; "fast" does not wait`)
+	shutdownGrace := flags.Duration("shutdown-grace", 5*time.Second, "how long an in-flight commit may finish after cancellation")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprintf(output, "Usage: %s [options]\n\nOptions:\n", flags.Name())
@@ -57,6 +61,9 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	}
 	if flags.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " "))
+	}
+	if strings.TrimSpace(*agentID) == "" {
+		return fmt.Errorf("agent ID must not be empty")
 	}
 	if *scenarioPath != "" {
 		var conflictingFlags []string
@@ -102,6 +109,14 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("configure control policy: %w", err)
 	}
+
+	// Settle every flag before opening the database, so a rejected argument never leaves a
+	// database file behind for a run that was never going to start.
+	clock, err := buildClock(*pace, cfg.Start)
+	if err != nil {
+		return err
+	}
+
 	repository, err := sqlite.Open(*databasePath)
 	if err != nil {
 		return fmt.Errorf("open persistence: %w", err)
@@ -123,14 +138,38 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	}
 
 	encoder := json.NewEncoder(output)
-	runErr := application.RunPersistentDay(ctx, sim, policy, repository, cfg.DeviceID, func(record application.Record) error {
-		return encoder.Encode(record)
+	runErr := application.Run(ctx, application.Agent{
+		Clock:         clock,
+		Source:        sim,
+		Sink:          sim,
+		Policy:        policy,
+		Repository:    repository,
+		ID:            *agentID,
+		DeviceID:      cfg.DeviceID,
+		MaxIntervals:  *intervals,
+		ShutdownGrace: *shutdownGrace,
+		Write: func(record application.Record) error {
+			return encoder.Encode(record)
+		},
 	})
 	if runErr != nil {
 		runErr = fmt.Errorf("run simulation: %w", runErr)
 	}
 
 	return closeRepository(repository, runErr)
+}
+
+// buildClock returns the Clock matching pace: "real" waits one interval between observations;
+// "fast" never waits and tracks a simulated schedule starting at start instead of the wall clock.
+func buildClock(pace string, start time.Time) (application.Clock, error) {
+	switch pace {
+	case "real":
+		return application.NewRealClock(), nil
+	case "fast":
+		return application.NewInstantClock(start.UTC()), nil
+	default:
+		return nil, fmt.Errorf(`invalid -pace value %q: must be "real" or "fast"`, pace)
+	}
 }
 
 func closeRepository(repository *sqlite.Repository, priorErr error) error {

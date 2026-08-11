@@ -23,20 +23,21 @@ possible directions rather than fixed commitments.
 | v0.1 — Single Household Simulation | Complete |
 | v0.2 — Persistent Device State | Complete |
 | v0.3 — Unreliable Telemetry | Complete |
-| v0.4 — Single-Site Edge Runtime | Current |
-| v0.5 — Observability and Local Operations | Planned |
+| v0.4 — Single-Site Edge Runtime | Complete |
+| v0.5 — Observability and Local Operations | Current |
 | v0.6 — Cloud Ingestion Service | Planned |
 | v0.7 — Offline-Capable Edge Delivery | Planned |
 | v0.8 — Fleet Simulation and Ingestion Load | Planned |
 | v0.9 — Azure Deployment with Pulumi | Planned |
 | v1.0 — Portfolio Readiness | Planned |
 
-The application now persists telemetry, commands, and latest device state in
-SQLite, restores battery state after restart, and commits each processing result
-before applying its command. It also classifies every observation, so duplicate,
-out-of-order, delayed, invalid, missing, and unavailable telemetry each have
-defined behavior and a durable device-health state. The next milestone turns the
-finite simulation run into a long-running edge runtime.
+The application now runs as a long-running edge agent for one household: it
+processes telemetry until stopped, restores battery state after restart, and
+commits each processing result before applying its command. It also classifies
+every observation, so duplicate, out-of-order, delayed, invalid, missing, and
+unavailable telemetry each have defined behavior and a durable device-health
+state. The next milestone makes that running process understandable and
+diagnosable before it is connected to a cloud service.
 
 Everything up to and including v0.5 builds one edge agent. v0.6 introduces the
 cloud boundary, v0.7 makes delivery survive disconnection, v0.8 measures the
@@ -357,7 +358,9 @@ in v0.6.
 
 ## v0.4 — Single-Site Edge Runtime
 
-**Status:** Current.
+**Status:** Complete. The `TelemetrySource`/`CommandSink` contracts, the
+context-and-clock-driven loop, and the import-boundary check are implemented
+and verified.
 
 ### Goal
 
@@ -406,6 +409,51 @@ for one household or energy site.
 * No domain package imports a transport or storage package, enforced by an
   automated import check.
 
+### Completion evidence
+
+* `internal/application` exports an injectable `Clock` (a real, waiting
+  implementation and an instant one for `-pace fast` and every fixed
+  scenario), the `TelemetrySource`/`CommandSink` contracts, and `Run` — the
+  loop that replaces the old fixed-day `RunPersistentDay`. `Run` ends on
+  context cancellation, `ErrSourceExhausted`, or a configured interval count,
+  never on a hardcoded day boundary.
+* The household simulator implements `TelemetrySource` and `CommandSink`
+  through plain method signatures, without importing `internal/application`;
+  `internal/demo` and `cmd/wattfeder` wire it in as one adapter among
+  possible others.
+* `cmd/wattfeder` adds `-agent-id`, `-intervals`, `-pace`, and
+  `-shutdown-grace`. `make agent` runs the edge agent with real pacing until
+  Ctrl+C; `make run` now means one simulated day as fast as possible
+  (`-pace fast -intervals 24`). The agent waits an interval between
+  observations rather than ahead of the first one, so a started agent reports
+  its opening interval immediately.
+* `-agent-id` names the instance in the `agent_id` field of every record the
+  runtime writes. It stays a runtime value: no column, no migration, and
+  nothing reads it back out of storage until the v0.7 outbox needs it.
+* Cancellation is checked once per interval, before the next observation is
+  requested; a classified observation commits *and applies its command* on a
+  context derived with `context.WithoutCancel`, bounded by `-shutdown-grace`,
+  so ordinary process cancellation does not abandon it mid-flight. A grace
+  timeout or sink failure is reported explicitly. An integration test cancels
+  between an observation being handed to the runtime and its commit, against
+  real SQLite, and confirms the commit still lands.
+* Two agent processes with distinct `-agent-id`, `-device-id`, and
+  `-database` values run concurrently in an integration test and produce
+  records carrying their own agent and device identities, with no
+  cross-contamination.
+* A unit test runs 1,000 intervals against the *real* clock — the only one
+  that starts a goroutine per tick — and confirms the goroutine count returns
+  to its starting level, evidencing the "no unbounded queue or goroutine" exit
+  criterion without introducing a channel or worker pool.
+* `internal/architecture` parses imports with `go/parser` and runs as a normal
+  test under `make check`. It fails when `internal/household` imports anything
+  outside the standard library, and when `internal/application` imports
+  anything but the domain and persistence contracts — which is what keeps the
+  simulator an adapter the runtime cannot name.
+* `make demo` and `make demo-faults` produce output byte-identical to the
+  milestone's pre-refactor baseline. `make run`'s records are identical field
+  for field apart from the added `agent_id`.
+
 ### Engineering records
 
 The deployment model this milestone implements is already recorded as
@@ -418,6 +466,8 @@ contested by measurement.
 ---
 
 ## v0.5 — Observability and Local Operations
+
+**Status:** Current.
 
 ### Goal
 
@@ -935,23 +985,21 @@ contribute to its exit criteria should normally be postponed.
 The current focus is:
 
 ```text
-v0.4 — Single-Site Edge Runtime
+v0.5 — Observability and Local Operations
 ```
 
 The next implementation sequence is:
 
-1. Introduce the `TelemetrySource` and `CommandSink` contracts and move the
-   simulator behind them.
-2. Replace the fixed one-day loop with a context-driven, long-running loop.
-3. Bound any in-memory handoff and define what happens when the bound is
-   reached.
-4. Make agent identity and database path configurable per instance.
-5. Guarantee shutdown does not abandon an event already accepted for
-   persistence.
-6. Add an automated import check that fails when a domain package imports a
-   transport or storage package.
+1. Add structured logging and processing-latency, event-lag, and
+   rejection/error metrics to the v0.4 runtime loop.
+2. Expose health and readiness endpoints with different documented purposes.
+3. Add OpenTelemetry instrumentation so one local processing run produces an
+   inspectable trace.
+4. Package the edge agent as a Docker image and add a local Docker Compose
+   environment.
+5. Write a small operational runbook covering common failure scenarios.
 
-The cloud ingestion service, the offline outbox, distributed tracing, the fleet
-load test, and Azure deployment remain outside the current milestone.
-Kubernetes, Kafka, a frontend, and real hardware remain outside the project
-unless a measured requirement makes them necessary.
+The cloud ingestion service, the offline outbox, distributed tracing across the
+edge-cloud boundary, the fleet load test, and Azure deployment remain outside
+the current milestone. Kubernetes, Kafka, a frontend, and real hardware remain
+outside the project unless a measured requirement makes them necessary.

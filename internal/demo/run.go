@@ -75,6 +75,10 @@ type simulationCompletedLog struct {
 	ExpectedResult     string `json:"expected_result"`
 }
 
+// demoShutdownGrace bounds each commit's context. A demo run is never cancelled mid-flight, so
+// this only needs to be generous enough that a normal commit never approaches it.
+const demoShutdownGrace = 5 * time.Second
+
 // Run executes one scenario and writes structured progress records. It processes the
 // scenario through the full durable flow, using a file-free in-memory SQLite database.
 func Run(ctx context.Context, scenario Scenario, output io.Writer) error {
@@ -120,57 +124,69 @@ func Run(ctx context.Context, scenario Scenario, output io.Writer) error {
 	dispositions := make([]household.Disposition, 0, sim.IntervalsPerDay())
 	healthStatuses := make([]household.DeviceHealthStatus, 0, sim.IntervalsPerDay())
 	counts := make(map[household.Decision]int)
-	err = application.RunPersistentDay(ctx, sim, policy, repository, scenario.Config.DeviceID, func(record application.Record) error {
-		if record.Timestamp != nil {
-			if err := encoder.Encode(telemetryLog{
-				Event:             "telemetry_produced",
-				EventID:           string(record.EventID),
-				Timestamp:         record.Timestamp.Format(time.RFC3339),
-				DeviceID:          record.DeviceID,
-				PVPowerKW:         *record.PVPowerKW,
-				LoadPowerKW:       *record.LoadPowerKW,
-				BatterySOCPercent: *record.BatterySOCPercent,
-				PriceEURPerKWh:    *record.PriceEURPerKWh,
-				Disposition:       string(record.Disposition),
-				DispositionReason: record.DispositionReason,
-				StateUpdated:      record.StateUpdated,
-				HealthStatus:      string(record.HealthStatus),
-				HealthReason:      record.HealthReason,
-			}); err != nil {
-				return err
+	// A scenario names a household, not an installed agent, so the runtime gets no agent
+	// identity and the demo's own log lines carry none either.
+	err = application.Run(ctx, application.Agent{
+		Clock:         application.NewInstantClock(scenario.Config.Start.UTC()),
+		Source:        sim,
+		Sink:          sim,
+		Policy:        policy,
+		Repository:    repository,
+		DeviceID:      scenario.Config.DeviceID,
+		MaxIntervals:  sim.IntervalsPerDay(),
+		ShutdownGrace: demoShutdownGrace,
+		Write: func(record application.Record) error {
+			if record.Timestamp != nil {
+				if err := encoder.Encode(telemetryLog{
+					Event:             "telemetry_produced",
+					EventID:           string(record.EventID),
+					Timestamp:         record.Timestamp.Format(time.RFC3339),
+					DeviceID:          record.DeviceID,
+					PVPowerKW:         *record.PVPowerKW,
+					LoadPowerKW:       *record.LoadPowerKW,
+					BatterySOCPercent: *record.BatterySOCPercent,
+					PriceEURPerKWh:    *record.PriceEURPerKWh,
+					Disposition:       string(record.Disposition),
+					DispositionReason: record.DispositionReason,
+					StateUpdated:      record.StateUpdated,
+					HealthStatus:      string(record.HealthStatus),
+					HealthReason:      record.HealthReason,
+				}); err != nil {
+					return err
+				}
+			} else {
+				if err := encoder.Encode(observationLog{
+					Event:             "observation_ignored",
+					DeviceID:          record.DeviceID,
+					ReceivedAt:        record.ReceivedAt.Format(time.RFC3339),
+					Disposition:       string(record.Disposition),
+					DispositionReason: record.DispositionReason,
+					HealthStatus:      string(record.HealthStatus),
+					HealthReason:      record.HealthReason,
+				}); err != nil {
+					return err
+				}
 			}
-		} else {
-			if err := encoder.Encode(observationLog{
-				Event:             "observation_ignored",
-				DeviceID:          record.DeviceID,
-				ReceivedAt:        record.ReceivedAt.Format(time.RFC3339),
-				Disposition:       string(record.Disposition),
-				DispositionReason: record.DispositionReason,
-				HealthStatus:      string(record.HealthStatus),
-				HealthReason:      record.HealthReason,
-			}); err != nil {
-				return err
-			}
-		}
 
-		if record.Decision != "" {
-			if err := encoder.Encode(decisionLog{
-				Event:          "decision_produced",
-				EventID:        string(record.EventID),
-				Timestamp:      record.Timestamp.Format(time.RFC3339),
-				Decision:       record.Decision,
-				CommandPowerKW: *record.CommandPowerKW,
-				Reason:         record.Reason,
-			}); err != nil {
-				return err
+			if record.Decision != "" {
+				if err := encoder.Encode(decisionLog{
+					Event:          "decision_produced",
+					EventID:        string(record.EventID),
+					Timestamp:      record.Timestamp.Format(time.RFC3339),
+					Decision:       record.Decision,
+					CommandPowerKW: *record.CommandPowerKW,
+					Reason:         record.Reason,
+				}); err != nil {
+					return err
+				}
+				counts[record.Decision]++
 			}
-			counts[record.Decision]++
-		}
 
-		decisions = append(decisions, record.Decision)
-		dispositions = append(dispositions, record.Disposition)
-		healthStatuses = append(healthStatuses, record.HealthStatus)
-		return nil
+			decisions = append(decisions, record.Decision)
+			dispositions = append(dispositions, record.Disposition)
+			healthStatuses = append(healthStatuses, record.HealthStatus)
+			return nil
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("run demo simulation: %w", err)

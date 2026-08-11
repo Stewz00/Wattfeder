@@ -9,8 +9,8 @@ arrives out of order, arrives broken, or does not arrive at all. Wattfeder is
 built around that fact. Every observation gets one explicit outcome, and one
 bad observation never stops the ones after it.
 
-Current version: **v0.3**. One household, one process, local SQLite storage.
-There is no cloud service yet.
+Current version: **v0.4**. One household, one long-running edge process, local
+SQLite storage. There is no cloud service yet.
 
 ## Try it in one command
 
@@ -24,7 +24,7 @@ They print newline-delimited JSON and check the result against the expected
 sequence. See [Demo](docs/DEMO.md) for what each line means.
 
 ```bash
-make run          # The configurable 24-hour simulation, stored in wattfeder.db
+make agent        # The edge agent, real pacing, until Ctrl+C
 make check        # Format, analyze, test, and build
 ```
 
@@ -44,7 +44,8 @@ Simulator → observation → classify → store → command → back to the bat
    health in one transaction. A repeated event ID changes nothing.
 4. The **policy** produces a command, but only for a fresh accepted event.
    Late or historical telemetry never commands a battery.
-5. The run **continues** to the next interval, whatever happened.
+5. The run **continues** to the next interval, whatever happened, until it is
+   told to stop — by Ctrl+C, or by a configured interval count.
 
 Latest state is ordered by event time, never by arrival. Old telemetry is kept
 as history but can never overwrite newer state.

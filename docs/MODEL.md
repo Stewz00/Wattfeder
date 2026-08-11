@@ -45,8 +45,11 @@ interval_energy_kwh = power_kw × interval_hours
 
 ## Time model
 
-Each run covers the half-open range from `start` through `start + 24h`. The end
-time is not emitted. The interval must divide 24 hours exactly.
+The simulator groups events into consecutive 24-hour profile days. Each day
+covers the half-open range from its first event time through 24 hours later; the
+end time is not emitted. A long-running agent starts the next profile day
+immediately, while the fixed demos and `make run` stop after one day. The
+interval must divide 24 hours exactly.
 
 Assumption: All profile clock times use UTC.
 

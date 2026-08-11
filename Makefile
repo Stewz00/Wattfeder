@@ -6,13 +6,16 @@ FAULT_SCENARIO ?= scenarios/unreliable-telemetry-day.json
 
 .DEFAULT_GOAL := help
 
-.PHONY: help run demo demo-faults demo-clean check verify validate fmt fmt-check mod-tidy-check mod-verify vet test build
+.PHONY: help run agent demo demo-faults demo-clean check verify validate fmt fmt-check mod-tidy-check mod-verify vet test build
 
 help: ## Show the available targets.
 	@awk 'BEGIN {FS = ":.*## "; printf "Usage: make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-run: ## Run the Wattfeder application.
-	@$(GO) run ./cmd/wattfeder
+run: ## Run one simulated day as fast as possible.
+	@$(GO) run ./cmd/wattfeder -pace fast -intervals 24
+
+agent: ## Run the edge agent until interrupted.
+	@$(GO) run ./cmd/wattfeder -agent-id agent-001 -interval 5s
 
 demo: ## Run the fixed local demo scenario.
 	@command -v $(GO) >/dev/null 2>&1 || { printf 'Required tool not found: %s\n' "$(GO)"; exit 1; }
