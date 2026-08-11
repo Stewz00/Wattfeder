@@ -2,6 +2,12 @@
 
 @.codex/skills/coding-file-docs/SKILL.md
 
+The long-form standard behind this file is
+[`docs/engineering/READABILITY.md`](docs/engineering/READABILITY.md). It defines
+the target reader, the cases every kind of operation must test, and the review
+standard a change is judged against. Read it when this file does not settle a
+question.
+
 ## Go Comments and Domain Documentation
 
 Write code that explains its mechanics through names and structure. Comments explain domain meaning, assumptions, constraints, or non-obvious decisions.
