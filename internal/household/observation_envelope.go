@@ -29,6 +29,9 @@ func (e ObservationEnvelope) Validate() error {
 		return errors.New("receive time must use UTC")
 	}
 
+	if e.Available && e.Telemetry == nil {
+		return errors.New("an available source must carry telemetry")
+	}
 	if !e.Available && e.Telemetry != nil {
 		return errors.New("an unavailable source must not carry telemetry")
 	}

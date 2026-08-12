@@ -145,7 +145,7 @@ func Run(ctx context.Context, agent Agent) error {
 		}
 
 		receivedAt := now
-		if envelope != nil {
+		if envelope != nil && !envelope.ReceivedAt.IsZero() && envelope.ReceivedAt.Location() == time.UTC {
 			receivedAt = envelope.ReceivedAt
 		}
 

@@ -36,6 +36,9 @@ func TestObservationEnvelopeValidateRejects(t *testing.T) {
 		{name: "unavailable source with telemetry", modify: func(e *ObservationEnvelope) {
 			e.Available = false
 		}},
+		{name: "available source without telemetry", modify: func(e *ObservationEnvelope) {
+			e.Telemetry = nil
+		}},
 	}
 
 	for _, tt := range tests {

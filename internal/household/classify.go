@@ -31,14 +31,18 @@ type ClassifyResult struct {
 	Health          DeviceHealth
 }
 
-// Classify applies the disposition and health-transition rules shared by every durable
-// storage adapter: it decides how one interval's observation must be recorded, whether it
-// replaces the latest device state, whether its command may be applied, and the resulting
-// device health.
+// Classify applies the shared disposition and health-transition rules: it decides how one
+// interval's observation must be recorded, whether it replaces the latest device state,
+// whether its command may be applied, and the resulting device health.
 func Classify(in ClassifyInput) ClassifyResult {
-	switch {
-	case in.Envelope == nil:
+	if in.Envelope == nil {
 		return classifyMissing(in)
+	}
+	if err := in.Envelope.Validate(); err != nil {
+		return rejected(in, err.Error())
+	}
+
+	switch {
 	case !in.Envelope.Available:
 		return classifyUnavailable(in)
 	case in.IsDuplicate:
@@ -109,6 +113,10 @@ func historyOnly(in ClassifyInput, event Telemetry) ClassifyResult {
 
 func rejected(in ClassifyInput, reason string) ClassifyResult {
 	receivedAt := in.Envelope.ReceivedAt
+	if receivedAt.IsZero() || receivedAt.Location() != time.UTC {
+		// Use the runtime clock because a malformed envelope timestamp cannot become durable health state
+		receivedAt = in.Now
+	}
 
 	return ClassifyResult{
 		Disposition:     DispositionRejected,

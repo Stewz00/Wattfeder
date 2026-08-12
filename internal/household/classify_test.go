@@ -312,6 +312,92 @@ func TestClassifyRejectsAndMarksHealthInvalid(t *testing.T) {
 	}
 }
 
+func TestClassifyRejectsMalformedEnvelope(t *testing.T) {
+	eventTime := classifyStart.Add(classifyInterval)
+	receivedAt := eventTime
+	now := receivedAt.Add(time.Minute)
+
+	tests := []struct {
+		name       string
+		modify     func(*ObservationEnvelope)
+		wantHealth time.Time
+	}{
+		{
+			name:       "empty source device ID",
+			modify:     func(envelope *ObservationEnvelope) { envelope.SourceDeviceID = "" },
+			wantHealth: receivedAt,
+		},
+		{
+			name:       "zero receive time",
+			modify:     func(envelope *ObservationEnvelope) { envelope.ReceivedAt = time.Time{} },
+			wantHealth: now,
+		},
+		{
+			name: "non-UTC receive time",
+			modify: func(envelope *ObservationEnvelope) {
+				envelope.ReceivedAt = envelope.ReceivedAt.In(time.FixedZone("CEST", 2*60*60))
+			},
+			wantHealth: now,
+		},
+		{
+			name:       "unavailable source with telemetry",
+			modify:     func(envelope *ObservationEnvelope) { envelope.Available = false },
+			wantHealth: receivedAt,
+		},
+		{
+			name:       "available source without telemetry",
+			modify:     func(envelope *ObservationEnvelope) { envelope.Telemetry = nil },
+			wantHealth: receivedAt,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw := classifyRaw(eventTime)
+			envelope := &ObservationEnvelope{
+				SourceDeviceID: "home-001",
+				ReceivedAt:     receivedAt,
+				Telemetry:      &raw,
+				Available:      true,
+			}
+			tt.modify(envelope)
+
+			result := Classify(ClassifyInput{
+				Envelope:    envelope,
+				PriorState:  classifyPriorState(),
+				PriorHealth: classifyPriorHealth(),
+				Policy:      classifyPolicy(t),
+				Interval:    classifyInterval,
+				Now:         now,
+			})
+
+			if result.Disposition != DispositionRejected {
+				t.Errorf("Disposition = %v, want %v", result.Disposition, DispositionRejected)
+			}
+			if result.Reason == "" {
+				t.Error("Reason is empty, want malformed-envelope reason")
+			}
+			if result.Telemetry != nil || result.State != nil {
+				t.Errorf("Telemetry = %+v, State = %+v, want neither", result.Telemetry, result.State)
+			}
+			if !result.SuppressCommand {
+				t.Error("SuppressCommand = false, want true")
+			}
+			if result.Health.Status != HealthInvalid {
+				t.Errorf("Health.Status = %v, want %v", result.Health.Status, HealthInvalid)
+			}
+			if result.Health.TransitionTime != tt.wantHealth || result.Health.LastContactAt != tt.wantHealth {
+				t.Errorf(
+					"Health times = (%v, %v), want both %v",
+					result.Health.TransitionTime,
+					result.Health.LastContactAt,
+					tt.wantHealth,
+				)
+			}
+		})
+	}
+}
+
 func TestClassifyMissingHeartbeatBecomesStaleThenOffline(t *testing.T) {
 	policy := classifyPolicy(t)
 	tests := []struct {

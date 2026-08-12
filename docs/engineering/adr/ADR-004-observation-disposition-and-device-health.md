@@ -28,7 +28,7 @@ continues afterwards, whatever that disposition was.
 | Valid, new, arrived late | `accepted` | Store | Update | Suppress | `stale` |
 | Valid, but not newer than latest state | `history_only` | Store | Keep | Suppress | Re-evaluated, `invalid` stays |
 | Event ID already known | `duplicate` | No change | Keep | Suppress | Unchanged |
-| Missing value, impossible measurement, wrong device, or future event time | `rejected` | Discard | Keep | Suppress | `invalid` |
+| Malformed envelope, missing value, impossible measurement, wrong device, or future event time | `rejected` | Discard | Keep | Suppress | `invalid` |
 | Heartbeat missing | `missing` | No change | Keep | Suppress | `stale`, later `offline` |
 | Source reports unavailability | `unavailable` | No change | Keep | Suppress | `offline` |
 
