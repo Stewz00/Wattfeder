@@ -67,11 +67,14 @@ arrival proves current contact. Reported unavailability forces `offline`
 immediately. The thresholds default to two and three telemetry intervals, and
 any override must keep `0 < stale < offline`.
 
-**Placement.** Disposition and health are decided by one pure domain function,
-`household.Classify`. The storage adapter calls it after looking up whether the
-event ID already exists, then applies the result in one transaction. Inside that
-transaction the adapter checks again that the event really is newer. A duplicate
-changes nothing at all, including health.
+**Placement.** `application.Run` calls the pure domain function
+`household.Classify` with its current state and health, then submits the result
+to storage. SQLite determines durable duplicates inside the transaction by
+inserting the event ID. If that ID already exists, it rolls back and returns
+`CommitDuplicate`; the application then reports `duplicate`, preserves its
+prior state and health, and applies no command. For a newly stored accepted
+event, the adapter independently checks that its state is strictly newer before
+replacing latest state and inserting its command.
 
 ## Alternatives considered
 
