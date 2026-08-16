@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -60,6 +61,7 @@ func runWithErrOutput(ctx context.Context, args []string, output, errOutput io.W
 	pace := flags.String("pace", "real", `"real" waits one interval between observations; "fast" does not wait`)
 	shutdownGrace := flags.Duration("shutdown-grace", 5*time.Second, "how long an in-flight commit may finish after cancellation")
 	logLevel := flags.String("log-level", "info", `log verbosity: "debug", "info", "warn" or "error"`)
+	opsAddress := flags.String("ops-address", "", "address for /healthz, /readyz and /metrics; empty serves nothing")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprintf(output, "Usage: %s [options]\n\nOptions:\n", flags.Name())
@@ -133,6 +135,27 @@ func runWithErrOutput(ctx context.Context, args []string, output, errOutput io.W
 		return err
 	}
 
+	metrics := observability.NewMetrics()
+	readiness := observability.NewReadiness(cfg.Interval)
+
+	// The ops listener binds, if configured, before the database opens: a bad -ops-address must
+	// fail startup the same way a bad database path does, leaving nothing behind.
+	var opsServer *observability.Server
+	var opsListener net.Listener
+	if *opsAddress != "" {
+		opsServer = observability.NewServer(*opsAddress, metrics, readiness)
+		opsListener, err = opsServer.Listen()
+		if err != nil {
+			return fmt.Errorf("listen on -ops-address: %w", err)
+		}
+	}
+
+	opsServeErr := make(chan error, 1)
+	if opsServer != nil {
+		go func() { opsServeErr <- opsServer.Serve(opsListener) }()
+		log.Info("ops_server_listening", "address", opsListener.Addr().String())
+	}
+
 	log.Info("agent_starting", "agent_id", *agentID, "device_id", cfg.DeviceID, "database", *databasePath)
 
 	repository, err := sqlite.Open(*databasePath)
@@ -163,7 +186,7 @@ func runWithErrOutput(ctx context.Context, args []string, output, errOutput io.W
 		Sink:          sim,
 		Policy:        policy,
 		Repository:    repository,
-		Observer:      observability.NewLogger(log),
+		Observer:      observability.NewMultiObserver(observability.NewLogger(log), metrics, readiness),
 		ID:            *agentID,
 		DeviceID:      cfg.DeviceID,
 		MaxIntervals:  *intervals,
@@ -180,6 +203,15 @@ func runWithErrOutput(ctx context.Context, args []string, output, errOutput io.W
 	}
 
 	log.Debug("agent_shutting_down")
+	if opsServer != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), *shutdownGrace)
+		if err := opsServer.Shutdown(shutdownCtx); err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("shut down ops server: %w", err))
+		}
+		cancel()
+		<-opsServeErr
+	}
+
 	return closeRepository(repository, runErr)
 }
 

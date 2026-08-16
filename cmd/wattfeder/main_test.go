@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -427,6 +428,100 @@ func runIsolated(t *testing.T, ctx context.Context, args []string, output io.Wri
 	t.Helper()
 	databaseArgs := []string{"-database", filepath.Join(t.TempDir(), "wattfeder.db")}
 	return run(ctx, append(args, databaseArgs...), output)
+}
+
+func TestRunWithOpsAddressServesHealthReadinessAndMetrics(t *testing.T) {
+	databaseArgs := []string{"-database", filepath.Join(t.TempDir(), "wattfeder.db")}
+	args := append([]string{
+		"-interval", "1ms", "-pace", "fast", "-intervals", "2",
+		"-ops-address", "127.0.0.1:0",
+	}, databaseArgs...)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	addrFound := make(chan string, 1)
+
+	var output bytes.Buffer
+	errPipeR, errPipeW, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Pipe() error = %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- runWithErrOutput(ctx, args, &output, errPipeW)
+		errPipeW.Close()
+	}()
+
+	go func() {
+		decoder := json.NewDecoder(errPipeR)
+		for {
+			var line map[string]any
+			if err := decoder.Decode(&line); err != nil {
+				return
+			}
+			if line["msg"] == "ops_server_listening" {
+				addrFound <- line["address"].(string)
+				return
+			}
+		}
+	}()
+
+	var addr string
+	select {
+	case addr = <-addrFound:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the ops server to log its address")
+	}
+
+	if resp, err := http.Get("http://" + addr + "/healthz"); err != nil {
+		t.Errorf("GET /healthz error = %v", err)
+	} else {
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("/healthz status = %d, want %d", resp.StatusCode, http.StatusOK)
+		}
+	}
+
+	if resp, err := http.Get("http://" + addr + "/metrics"); err != nil {
+		t.Errorf("GET /metrics error = %v", err)
+	} else {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if !strings.Contains(string(body), "wattfeder_") {
+			t.Errorf("/metrics body does not contain wattfeder_ series:\n%s", body)
+		}
+	}
+
+	if err := <-done; err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+}
+
+func TestRunWithEmptyOpsAddressStartsNoListener(t *testing.T) {
+	var output bytes.Buffer
+	if err := runIsolated(t, context.Background(), []string{"-interval", "24h", "-pace", "fast", "-intervals", "1"}, &output); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+}
+
+func TestRunWithBadOpsAddressFailsBeforeOpeningTheDatabase(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	err := run(context.Background(), []string{"-ops-address", "not-an-address:not-a-port", "-intervals", "1"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "listen on -ops-address") {
+		t.Errorf("run() error = %v, want an ops-address listen error", err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("a rejected -ops-address left %v behind, want an untouched directory", entries)
+	}
 }
 
 func TestRunSeparatesLogsFromTheRecordStream(t *testing.T) {
