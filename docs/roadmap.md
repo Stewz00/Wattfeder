@@ -24,8 +24,8 @@ possible directions rather than fixed commitments.
 | v0.2 — Persistent Device State | Complete |
 | v0.3 — Unreliable Telemetry | Complete |
 | v0.4 — Single-Site Edge Runtime | Complete |
-| v0.5 — Observability and Local Operations | Current |
-| v0.6 — Cloud Ingestion Service | Planned |
+| v0.5 — Observability and Local Operations | Complete |
+| v0.6 — Cloud Ingestion Service | Current |
 | v0.7 — Offline-Capable Edge Delivery | Planned |
 | v0.8 — Fleet Simulation and Ingestion Load | Planned |
 | v0.9 — Azure Deployment with Pulumi | Planned |
@@ -39,9 +39,8 @@ unavailable telemetry each have defined behavior and a durable device-health
 state. It is also now observable: structured logs, Prometheus metrics,
 OpenTelemetry tracing, and health/readiness endpoints all report on a running
 agent through one Observer seam, verified against the running process, its
-test suite, and manual endpoint checks. Only the Docker image and Compose
-environment remain to be verified against a real Docker daemon before v0.5 is
-complete.
+test suite, `docker compose up`, and the Prometheus and Jaeger UIs. The next
+milestone introduces the cloud boundary this agent will eventually deliver to.
 
 Everything up to and including v0.5 builds one edge agent. v0.6 introduces the
 cloud boundary, v0.7 makes delivery survive disconnection, v0.8 measures the
@@ -471,9 +470,8 @@ contested by measurement.
 
 ## v0.5 — Observability and Local Operations
 
-**Status:** Current. Implementation complete; the Docker image and Compose
-environment are written but not yet verified against a running Docker daemon
-(unavailable in the environment that built them).
+**Status:** Complete. Every exit criterion below has verified evidence,
+including `docker compose up` against a running daemon.
 
 ### Goal
 
@@ -529,24 +527,27 @@ ingestion service in v0.6, because only the cloud can see more than one agent.
 ### Exit criteria
 
 * `docker compose up` starts the edge agent and its local dependencies. —
-  written (`compose.yaml`, `Dockerfile`, `deploy/prometheus.yml`), not yet
-  verified against a running Docker daemon.
+  done; verified with a running Docker daemon: the image builds and runs as
+  `nonroot:nonroot`, and all three services (agent, Prometheus, Jaeger) start.
 * Health and readiness checks have different documented purposes. — done;
   see [Operations](OPERATIONS.md).
 * Key behavior is visible through metrics. — done; six `wattfeder_*` series,
-  verified with `prometheus/testutil` and a manual `curl` against `/metrics`.
+  verified with `prometheus/testutil` and against a live Prometheus target.
 * Logs contain enough context to trace an event. — done; one structured JSON
   line per interval on stderr, correlated to its trace by `trace_id`.
-* One local processing run produces a trace that can be inspected. — the
-  span structure (one `interval` span with a child `commit_processing` span)
-  is verified with an in-memory exporter and a manual run against a
-  collector endpoint; inspecting it in the Jaeger UI depends on the same
-  Docker verification as the item above.
+* One local processing run produces a trace that can be inspected. — done;
+  verified in the Jaeger UI: one `interval` span per interval with a child
+  `commit_processing` span.
 * The process shuts down without silently abandoning accepted work. — done;
   unchanged from v0.4's shutdown-grace behavior, now also closing the
   observer scope on every path.
 * The runbook describes common failure scenarios. — done; see
   [Operations](OPERATIONS.md).
+
+Also verified beyond the exit criteria: the agent's SQLite database persists
+on a named Docker volume — after `docker compose restart agent`, previously
+processed events were correctly reported as `duplicate` rather than
+reprocessed.
 
 ---
 
@@ -1007,18 +1008,28 @@ contribute to its exit criteria should normally be postponed.
 The current focus is:
 
 ```text
-v0.5 — Observability and Local Operations
+v0.6 — Cloud Ingestion Service
 ```
 
-Structured logging, metrics, tracing, health/readiness endpoints, and the
-operational runbook are implemented and verified. The remaining step before
-v0.5 can be marked complete is:
+v0.5 is complete: structured logging, metrics, tracing, health/readiness
+endpoints, the Docker image, the Compose environment, and the operational
+runbook are all implemented and verified.
 
-1. Verify `make docker-build` and `make compose-up` against a running Docker
-   daemon: confirm the image builds and runs non-root, Prometheus shows the
-   agent target up, and Jaeger shows an interval trace with its commit span.
+The next implementation sequence is:
 
-The cloud ingestion service, the offline outbox, distributed tracing across the
-edge-cloud boundary, the fleet load test, and Azure deployment remain outside
-the current milestone. Kubernetes, Kafka, a frontend, and real hardware remain
-outside the project unless a measured requirement makes them necessary.
+1. Stand up the ASP.NET Core ingestion service and its PostgreSQL schema and
+   migrations.
+2. Add an OpenAPI-described batch ingestion endpoint, idempotent by event ID.
+3. Separate telemetry history from the latest-state projection, and report a
+   per-event outcome in the batch response.
+4. Add health and readiness endpoints with different semantics, and
+   structured logs and metrics for ingestion, including the fleet-wide
+   online/stale/offline gauges no single agent can report.
+5. Write integration tests against a real PostgreSQL instance, and reuse the
+   v0.3 disposition rules so an event is judged the same way at the edge and
+   in the cloud.
+
+The offline outbox, distributed tracing across the edge-cloud boundary, the
+fleet load test, and Azure deployment remain outside the current milestone.
+Kubernetes, Kafka, a frontend, and real hardware remain outside the project
+unless a measured requirement makes them necessary.
