@@ -363,9 +363,6 @@ func TestSimulatorRequiresOneValidCommandPerTelemetryEvent(t *testing.T) {
 	if _, _, err := sim.NextObservation(); err == nil {
 		t.Error("NextObservation() after invalid command error = nil, want pending-command error")
 	}
-	if _, err := sim.SimulateDay(); err == nil {
-		t.Error("SimulateDay() with pending telemetry error = nil, want pending-command error")
-	}
 
 	if err := sim.Complete(&validCommand); err != nil {
 		t.Fatalf("Complete(valid) error = %v", err)
@@ -585,15 +582,51 @@ func nextTelemetry(t *testing.T, sim *Simulator) household.Telemetry {
 	return event
 }
 
+// simulateDay drives one day of telemetry through the simulator with a passive command applied
+// to every interval, evolving battery state from uncontrolled net power.
 func simulateDay(t *testing.T, sim *Simulator) []household.Telemetry {
 	t.Helper()
 
-	events, err := sim.SimulateDay()
-	if err != nil {
-		t.Fatalf("SimulateDay() error = %v", err)
+	eventCount := sim.IntervalsPerDay()
+	events := make([]household.Telemetry, 0, eventCount)
+
+	for range eventCount {
+		envelope, _, err := sim.NextObservation()
+		if err != nil {
+			t.Fatalf("NextObservation() error = %v", err)
+		}
+		if envelope == nil || envelope.Telemetry == nil {
+			t.Fatal("NextObservation() returned no telemetry; simulateDay does not support a fault schedule")
+		}
+		event, err := envelope.Telemetry.Validate()
+		if err != nil {
+			t.Fatalf("validate telemetry: %v", err)
+		}
+
+		command := passiveCommand(event)
+		if err := sim.Complete(&command); err != nil {
+			t.Fatalf("apply passive command: %v", err)
+		}
+		events = append(events, event)
 	}
 
 	return events
+}
+
+// passiveCommand follows uncontrolled net power, mirroring an idle household with no active
+// battery control strategy.
+func passiveCommand(event household.Telemetry) household.Command {
+	const reason = "Follow uncontrolled net power"
+
+	powerKW := event.PVPowerKW - event.LoadPowerKW
+	if powerKW > 0 {
+		return household.Command{Decision: household.DecisionCharge, PowerKW: powerKW, Reason: reason}
+	}
+	if powerKW < 0 {
+		return household.Command{Decision: household.DecisionDischarge, PowerKW: -powerKW, Reason: reason}
+	}
+
+	return household.Command{Decision: household.DecisionIdle, Reason: reason}
 }
 
 func validSimulatorConfig() Config {

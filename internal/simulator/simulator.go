@@ -98,36 +98,6 @@ func New(cfg Config) (*Simulator, error) {
 	return simulator, nil
 }
 
-// SimulateDay emits one day of telemetry and evolves battery state from uncontrolled net power.
-// It returns an error if another telemetry event is awaiting a command, or if the configured
-// fault schedule would prevent producing a plain telemetry event.
-func (s *Simulator) SimulateDay() ([]household.Telemetry, error) {
-	eventCount := s.IntervalsPerDay()
-	events := make([]household.Telemetry, 0, eventCount)
-
-	for range eventCount {
-		envelope, _, err := s.NextObservation()
-		if err != nil {
-			return nil, fmt.Errorf("get telemetry: %w", err)
-		}
-		if envelope == nil || envelope.Telemetry == nil {
-			return nil, errors.New("get telemetry: SimulateDay does not support a fault schedule")
-		}
-		event, err := envelope.Telemetry.Validate()
-		if err != nil {
-			return nil, fmt.Errorf("get telemetry: %w", err)
-		}
-
-		command := passiveCommand(event)
-		if err := s.Complete(&command); err != nil {
-			return nil, fmt.Errorf("apply passive command: %w", err)
-		}
-		events = append(events, event)
-	}
-
-	return events, nil
-}
-
 // IntervalsPerDay returns the number of telemetry events in one simulated day.
 func (s *Simulator) IntervalsPerDay() int {
 	return int(SimulationDuration / s.cfg.Interval)
@@ -290,20 +260,6 @@ func (s *Simulator) startDay() {
 	s.dailyPVFactor = s.randomFactor(pvDailyFactorMin, pvDailyFactorMax)
 	s.dailyLoadFactor = s.randomFactor(loadDailyFactorMin, loadDailyFactorMax)
 	s.dailyPriceFactor = s.randomFactor(priceDailyFactorMin, priceDailyFactorMax)
-}
-
-func passiveCommand(event household.Telemetry) household.Command {
-	const reason = "Follow uncontrolled net power"
-
-	powerKW := event.PVPowerKW - event.LoadPowerKW
-	if powerKW > 0 {
-		return household.Command{Decision: household.DecisionCharge, PowerKW: powerKW, Reason: reason}
-	}
-	if powerKW < 0 {
-		return household.Command{Decision: household.DecisionDischarge, PowerKW: -powerKW, Reason: reason}
-	}
-
-	return household.Command{Decision: household.DecisionIdle, Reason: reason}
 }
 
 func commandBatteryPowerKW(command household.Command) float64 {
