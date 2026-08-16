@@ -36,8 +36,12 @@ processes telemetry until stopped, restores battery state after restart, and
 commits each processing result before applying its command. It also classifies
 every observation, so duplicate, out-of-order, delayed, invalid, missing, and
 unavailable telemetry each have defined behavior and a durable device-health
-state. The next milestone makes that running process understandable and
-diagnosable before it is connected to a cloud service.
+state. It is also now observable: structured logs, Prometheus metrics,
+OpenTelemetry tracing, and health/readiness endpoints all report on a running
+agent through one Observer seam, verified against the running process, its
+test suite, and manual endpoint checks. Only the Docker image and Compose
+environment remain to be verified against a real Docker daemon before v0.5 is
+complete.
 
 Everything up to and including v0.5 builds one edge agent. v0.6 introduces the
 cloud boundary, v0.7 makes delivery survive disconnection, v0.8 measures the
@@ -467,7 +471,9 @@ contested by measurement.
 
 ## v0.5 — Observability and Local Operations
 
-**Status:** Current.
+**Status:** Current. Implementation complete; the Docker image and Compose
+environment are written but not yet verified against a running Docker daemon
+(unavailable in the environment that built them).
 
 ### Goal
 
@@ -490,18 +496,22 @@ connected to a cloud service.
 * Local Docker Compose environment.
 * Small operational runbook.
 
-### Example metrics
+### Metrics
 
 ```text
 wattfeder_telemetry_received_total
-wattfeder_telemetry_processed_total
-wattfeder_telemetry_rejected_total
-wattfeder_commands_created_total
-wattfeder_device_health          # one gauge labeled by health state
+wattfeder_telemetry_processed_total{disposition}
+wattfeder_commands_created_total{decision}
+wattfeder_device_health{status}   # 1 on the active status, 0 elsewhere
 wattfeder_processing_duration_seconds
 wattfeder_event_lag_seconds
-wattfeder_queue_depth
 ```
+
+`wattfeder_telemetry_rejected_total` was dropped from this set: it would only
+duplicate `wattfeder_telemetry_processed_total{disposition="rejected"}`.
+`wattfeder_queue_depth` was dropped too: no queue exists at the edge until the
+v0.7 outbox, so there is nothing yet for that gauge to measure. See
+[Operations](OPERATIONS.md) for what each series means.
 
 An agent reports the health of the one household energy system it manages. Gauges
 that count online, stale and offline devices across a fleet belong to the
@@ -518,13 +528,25 @@ ingestion service in v0.6, because only the cloud can see more than one agent.
 
 ### Exit criteria
 
-* `docker compose up` starts the edge agent and its local dependencies.
-* Health and readiness checks have different documented purposes.
-* Key behavior is visible through metrics.
-* Logs contain enough context to trace an event.
-* One local processing run produces a trace that can be inspected.
-* The process shuts down without silently abandoning accepted work.
-* The runbook describes common failure scenarios.
+* `docker compose up` starts the edge agent and its local dependencies. —
+  written (`compose.yaml`, `Dockerfile`, `deploy/prometheus.yml`), not yet
+  verified against a running Docker daemon.
+* Health and readiness checks have different documented purposes. — done;
+  see [Operations](OPERATIONS.md).
+* Key behavior is visible through metrics. — done; six `wattfeder_*` series,
+  verified with `prometheus/testutil` and a manual `curl` against `/metrics`.
+* Logs contain enough context to trace an event. — done; one structured JSON
+  line per interval on stderr, correlated to its trace by `trace_id`.
+* One local processing run produces a trace that can be inspected. — the
+  span structure (one `interval` span with a child `commit_processing` span)
+  is verified with an in-memory exporter and a manual run against a
+  collector endpoint; inspecting it in the Jaeger UI depends on the same
+  Docker verification as the item above.
+* The process shuts down without silently abandoning accepted work. — done;
+  unchanged from v0.4's shutdown-grace behavior, now also closing the
+  observer scope on every path.
+* The runbook describes common failure scenarios. — done; see
+  [Operations](OPERATIONS.md).
 
 ---
 
@@ -988,16 +1010,13 @@ The current focus is:
 v0.5 — Observability and Local Operations
 ```
 
-The next implementation sequence is:
+Structured logging, metrics, tracing, health/readiness endpoints, and the
+operational runbook are implemented and verified. The remaining step before
+v0.5 can be marked complete is:
 
-1. Add structured logging and processing-latency, event-lag, and
-   rejection/error metrics to the v0.4 runtime loop.
-2. Expose health and readiness endpoints with different documented purposes.
-3. Add OpenTelemetry instrumentation so one local processing run produces an
-   inspectable trace.
-4. Package the edge agent as a Docker image and add a local Docker Compose
-   environment.
-5. Write a small operational runbook covering common failure scenarios.
+1. Verify `make docker-build` and `make compose-up` against a running Docker
+   daemon: confirm the image builds and runs non-root, Prometheus shows the
+   agent target up, and Jaeger shows an interval trace with its commit span.
 
 The cloud ingestion service, the offline outbox, distributed tracing across the
 edge-cloud boundary, the fleet load test, and Azure deployment remain outside
