@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/Stewz00/wattfeder/internal/application"
 	"github.com/Stewz00/wattfeder/internal/household"
 )
@@ -46,13 +48,18 @@ func NewLogger(log *slog.Logger) *Logger {
 // closes.
 func (l *Logger) BeginInterval(ctx context.Context) (context.Context, application.EndInterval) {
 	start := time.Now()
+	spanContext := trace.SpanContextFromContext(ctx)
 	return ctx, func(record application.Record, err error) {
-		l.logInterval(record, err, time.Since(start))
+		l.logInterval(record, err, time.Since(start), spanContext)
 	}
 }
 
-func (l *Logger) logInterval(record application.Record, err error, duration time.Duration) {
-	attrs := []slog.Attr{
+func (l *Logger) logInterval(record application.Record, err error, duration time.Duration, spanContext trace.SpanContext) {
+	attrs := []slog.Attr{}
+	if spanContext.HasTraceID() {
+		attrs = append(attrs, slog.String("trace_id", spanContext.TraceID().String()))
+	}
+	attrs = append(attrs,
 		slog.String("agent_id", record.AgentID),
 		slog.String("device_id", record.DeviceID),
 		slog.String("event_id", string(record.EventID)),
@@ -61,7 +68,7 @@ func (l *Logger) logInterval(record application.Record, err error, duration time
 		slog.String("health_status", string(record.HealthStatus)),
 		slog.String("decision", string(record.Decision)),
 		slog.Int64("duration_ms", duration.Milliseconds()),
-	}
+	)
 	if record.Timestamp != nil {
 		attrs = append(attrs, slog.Float64("event_lag_seconds", record.ReceivedAt.Sub(*record.Timestamp).Seconds()))
 	}

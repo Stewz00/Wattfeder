@@ -99,6 +99,23 @@ func TestLoggerLevelsByDispositionAndError(t *testing.T) {
 	}
 }
 
+func TestLoggerIncludesTheTraceIDWhenTheContextCarriesASpan(t *testing.T) {
+	var buf bytes.Buffer
+	logger := newTestLogger(&buf)
+	tracer, _ := newTestTracer(t)
+
+	tracedCtx, endSpan := tracer.BeginInterval(t.Context())
+	_, endLog := logger.BeginInterval(tracedCtx)
+	endLog(application.Record{Disposition: household.DispositionAccepted}, nil)
+	endSpan(application.Record{Disposition: household.DispositionAccepted}, nil)
+
+	line := decodeLine(t, &buf)
+	traceID, ok := line["trace_id"].(string)
+	if !ok || traceID == "" {
+		t.Errorf("trace_id = %v, want a non-empty trace ID", line["trace_id"])
+	}
+}
+
 func TestParseLevelRejectsUnknownValues(t *testing.T) {
 	if _, err := ParseLevel("silly"); err == nil {
 		t.Error("ParseLevel(\"silly\") error = nil, want an error")

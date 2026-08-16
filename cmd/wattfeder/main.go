@@ -15,10 +15,13 @@ import (
 	"syscall"
 	"time"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+
 	"github.com/Stewz00/wattfeder/internal/application"
 	"github.com/Stewz00/wattfeder/internal/demo"
 	"github.com/Stewz00/wattfeder/internal/household"
 	"github.com/Stewz00/wattfeder/internal/observability"
+	"github.com/Stewz00/wattfeder/internal/persistence"
 	"github.com/Stewz00/wattfeder/internal/persistence/sqlite"
 	"github.com/Stewz00/wattfeder/internal/simulator"
 )
@@ -62,6 +65,7 @@ func runWithErrOutput(ctx context.Context, args []string, output, errOutput io.W
 	shutdownGrace := flags.Duration("shutdown-grace", 5*time.Second, "how long an in-flight commit may finish after cancellation")
 	logLevel := flags.String("log-level", "info", `log verbosity: "debug", "info", "warn" or "error"`)
 	opsAddress := flags.String("ops-address", "", "address for /healthz, /readyz and /metrics; empty serves nothing")
+	otlpEndpoint := flags.String("otlp-endpoint", "", "OTLP/HTTP collector endpoint, e.g. localhost:4318; empty disables tracing")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprintf(output, "Usage: %s [options]\n\nOptions:\n", flags.Name())
@@ -138,6 +142,16 @@ func runWithErrOutput(ctx context.Context, args []string, output, errOutput io.W
 	metrics := observability.NewMetrics()
 	readiness := observability.NewReadiness(cfg.Interval)
 
+	var tracerProvider *sdktrace.TracerProvider
+	var tracer *observability.Tracer
+	if *otlpEndpoint != "" {
+		tracerProvider, err = observability.NewTracerProvider(ctx, *otlpEndpoint, "wattfeder")
+		if err != nil {
+			return fmt.Errorf("build tracer provider: %w", err)
+		}
+		tracer = observability.NewTracer(tracerProvider)
+	}
+
 	// The ops listener binds, if configured, before the database opens: a bad -ops-address must
 	// fail startup the same way a bad database path does, leaving nothing behind.
 	var opsServer *observability.Server
@@ -179,14 +193,25 @@ func runWithErrOutput(ctx context.Context, args []string, output, errOutput io.W
 		return closeRepository(repository, err)
 	}
 
+	var repoForRun persistence.Repository = repository
+	observers := []application.Observer{}
+	if tracer != nil {
+		// The tracer runs first so the interval span it opens is what every other observer's
+		// context carries, letting the logger read trace_id back out and the traced repository
+		// nest its commit span under the interval span.
+		observers = append(observers, tracer)
+		repoForRun = observability.NewTracedRepository(repository, tracerProvider)
+	}
+	observers = append(observers, observability.NewLogger(log), metrics, readiness)
+
 	encoder := json.NewEncoder(output)
 	runErr := application.Run(ctx, application.Agent{
 		Clock:         clock,
 		Source:        sim,
 		Sink:          sim,
 		Policy:        policy,
-		Repository:    repository,
-		Observer:      observability.NewMultiObserver(observability.NewLogger(log), metrics, readiness),
+		Repository:    repoForRun,
+		Observer:      observability.NewMultiObserver(observers...),
 		ID:            *agentID,
 		DeviceID:      cfg.DeviceID,
 		MaxIntervals:  *intervals,
@@ -203,6 +228,13 @@ func runWithErrOutput(ctx context.Context, args []string, output, errOutput io.W
 	}
 
 	log.Debug("agent_shutting_down")
+	if tracerProvider != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), *shutdownGrace)
+		if err := tracerProvider.Shutdown(shutdownCtx); err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("shut down tracer provider: %w", err))
+		}
+		cancel()
+	}
 	if opsServer != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), *shutdownGrace)
 		if err := opsServer.Shutdown(shutdownCtx); err != nil {
