@@ -32,6 +32,10 @@ func NewReadiness(interval time.Duration) *Readiness {
 // returned EndInterval runs. Every error path ends the run itself, so distinguishing exactly
 // which step failed brings the readiness probe no closer to true than knowing an interval ended
 // in error at all.
+//
+// Unlike Logger and Metrics, this records the empty scope an exhausted source closes too. By
+// then the run is over and the ops server is shutting down, so no probe can still read the
+// difference.
 func (r *Readiness) BeginInterval(ctx context.Context) (context.Context, application.EndInterval) {
 	return ctx, func(_ application.Record, err error) {
 		r.mu.Lock()

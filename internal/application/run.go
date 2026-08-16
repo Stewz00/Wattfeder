@@ -39,6 +39,13 @@ type Record struct {
 	Reason             string                       `json:"reason,omitempty"`
 }
 
+// IsZero reports whether this Record describes nothing. Every interval that runs to completion
+// produces a Record with at least a device ID and a disposition, so the zero value only ever
+// reaches an observer when the interval ended before producing a result.
+func (r Record) IsZero() bool {
+	return r == Record{}
+}
+
 // Agent is everything one edge agent needs to process telemetry for one household. Run rejects
 // a missing Repository or a blank DeviceID; the fields whose meaning is not carried by their
 // type document their own contract.

@@ -55,6 +55,12 @@ func (l *Logger) BeginInterval(ctx context.Context) (context.Context, applicatio
 }
 
 func (l *Logger) logInterval(record application.Record, err error, duration time.Duration, spanContext trace.SpanContext) {
+	// Neither a record nor an error means no interval happened. The run is ending, which
+	// cmd/wattfeder logs on its own.
+	if record.IsZero() && err == nil {
+		return
+	}
+
 	attrs := []slog.Attr{}
 	if spanContext.HasTraceID() {
 		attrs = append(attrs, slog.String("trace_id", spanContext.TraceID().String()))

@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+	"slices"
 
 	"github.com/Stewz00/wattfeder/internal/application"
 )
@@ -25,7 +26,10 @@ func (m *MultiObserver) BeginInterval(ctx context.Context) (context.Context, app
 		ends[i] = end
 	}
 	return ctx, func(record application.Record, err error) {
-		for _, end := range ends {
+		// The scopes nest: each observer's BeginInterval received the context the one before it
+		// returned, so they unwind in the reverse order. That keeps an observer's scope open for
+		// as long as every scope opened inside it.
+		for _, end := range slices.Backward(ends) {
 			end(record, err)
 		}
 	}

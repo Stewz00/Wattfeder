@@ -62,8 +62,13 @@ func TestRunOpensOneObserverScopePerInterval(t *testing.T) {
 			t.Errorf("scope %d record disposition = %v, want %v", i, scope.record.Disposition, household.DispositionAccepted)
 		}
 	}
+	// Observers tell this scope apart from a real interval by exactly this pair, so both halves
+	// are part of the seam's contract rather than an implementation detail.
 	if observer.ended[2].err != nil {
 		t.Errorf("exhaustion scope ended with err = %v, want nil (source exhaustion ends the run cleanly)", observer.ended[2].err)
+	}
+	if !observer.ended[2].record.IsZero() {
+		t.Errorf("exhaustion scope ended with record = %+v, want the zero Record (no interval happened)", observer.ended[2].record)
 	}
 }
 

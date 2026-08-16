@@ -115,8 +115,39 @@ func TestMetricsDurationMeasuresTheWholeInterval(t *testing.T) {
 	time.Sleep(5 * time.Millisecond)
 	end(application.Record{Disposition: household.DispositionAccepted}, nil)
 
-	histogram := testutil.CollectAndCount(m.processingDuration)
-	if histogram != 1 {
-		t.Fatalf("processingDuration observation count = %d, want 1", histogram)
+	if got := durationObservations(t, m); got != 1 {
+		t.Fatalf("processing duration observations = %d, want 1", got)
 	}
+}
+
+func TestMetricsIgnoreAnIntervalThatProducedNoRecord(t *testing.T) {
+	m := NewMetrics()
+	_, end := m.BeginInterval(t.Context())
+	end(application.Record{}, nil)
+
+	if got := testutil.ToFloat64(m.telemetryReceived); got != 0 {
+		t.Errorf("wattfeder_telemetry_received_total = %v, want 0 (no envelope arrived)", got)
+	}
+	if got := testutil.CollectAndCount(m.telemetryProcessed); got != 0 {
+		t.Errorf("wattfeder_telemetry_processed_total series = %d, want 0 (an empty disposition is not a series)", got)
+	}
+	if got := durationObservations(t, m); got != 0 {
+		t.Errorf("processing duration observations = %d, want 0", got)
+	}
+}
+
+// durationObservations reports how many intervals the duration histogram actually observed.
+func durationObservations(t *testing.T, m *Metrics) uint64 {
+	t.Helper()
+	families, err := m.Registry().Gather()
+	if err != nil {
+		t.Fatalf("Gather() error = %v", err)
+	}
+	for _, family := range families {
+		if family.GetName() == "wattfeder_processing_duration_seconds" {
+			return family.GetMetric()[0].GetHistogram().GetSampleCount()
+		}
+	}
+	t.Fatal("wattfeder_processing_duration_seconds is not registered")
+	return 0
 }

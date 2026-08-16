@@ -85,6 +85,13 @@ func (m *Metrics) BeginInterval(ctx context.Context) (context.Context, applicati
 }
 
 func (m *Metrics) observe(record application.Record, duration time.Duration) {
+	// An interval that produced no record has no disposition to label a series with, and no
+	// duration worth comparing against intervals that did the full work. Its failure, if it
+	// failed, is reported by the log line and the span instead.
+	if record.IsZero() {
+		return
+	}
+
 	if record.Disposition != household.DispositionMissing {
 		m.telemetryReceived.Inc()
 	}

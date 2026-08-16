@@ -99,6 +99,34 @@ func TestLoggerLevelsByDispositionAndError(t *testing.T) {
 	}
 }
 
+func TestLoggerSkipsAScopeThatProducedNeitherRecordNorError(t *testing.T) {
+	var buf bytes.Buffer
+	logger := newTestLogger(&buf)
+
+	_, end := logger.BeginInterval(t.Context())
+	end(application.Record{}, nil)
+
+	if buf.Len() != 0 {
+		t.Errorf("logged %q, want nothing: no interval happened", buf.String())
+	}
+}
+
+func TestLoggerLogsAFailureEvenWithoutARecord(t *testing.T) {
+	var buf bytes.Buffer
+	logger := newTestLogger(&buf)
+
+	_, end := logger.BeginInterval(t.Context())
+	end(application.Record{}, errors.New("commit processing result: boom"))
+
+	line := decodeLine(t, &buf)
+	if got, _ := line["level"].(string); got != "ERROR" {
+		t.Errorf("level = %q, want %q", got, "ERROR")
+	}
+	if got, _ := line["error"].(string); got == "" {
+		t.Error("missing error field: a failed interval is the one an operator most needs logged")
+	}
+}
+
 func TestLoggerIncludesTheTraceIDWhenTheContextCarriesASpan(t *testing.T) {
 	var buf bytes.Buffer
 	logger := newTestLogger(&buf)

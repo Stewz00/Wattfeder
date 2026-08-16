@@ -12,7 +12,16 @@ type Observer interface {
 }
 
 // EndInterval closes one interval with the record it produced and the error that ended it.
-// record is the zero Record when the interval failed before producing one.
+//
+// Three combinations reach an observer:
+//
+//	record, nil   an interval was processed
+//	zero, err     the interval failed before producing a record
+//	zero, nil     no interval happened: the source had nothing left to hand over, which ends
+//	              the run rather than an interval
+//
+// Every scope is closed exactly once, including the last one, so an observer that allocates on
+// BeginInterval can always release on EndInterval.
 type EndInterval func(record Record, err error)
 
 // noopObserver is used whenever Agent.Observer is nil, so Run never has to branch on it.
