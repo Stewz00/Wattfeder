@@ -63,6 +63,32 @@ func TestReadyzReportsReadyAfterAnInterval(t *testing.T) {
 	}
 }
 
+func TestReadyzReportsTelemetryStalledLongAfterAnInterval(t *testing.T) {
+	readiness := NewReadiness(time.Minute)
+	_, end := readiness.BeginInterval(t.Context())
+	end(application.Record{}, nil)
+
+	future := func() time.Time { return time.Now().Add(4 * time.Minute) }
+	server := httptest.NewServer(newMux(NewMetrics(), readiness, future))
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/readyz")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusServiceUnavailable)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["failing_check"] != "telemetry" {
+		t.Errorf("failing_check = %q, want %q (a stalled loop is a telemetry failure, not storage)", body["failing_check"], "telemetry")
+	}
+}
+
 func TestReadyzReportsStorageFailureAfterACommitFailure(t *testing.T) {
 	readiness := NewReadiness(time.Hour)
 	_, end := readiness.BeginInterval(t.Context())
