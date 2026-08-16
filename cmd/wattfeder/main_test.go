@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -258,14 +259,16 @@ func TestRunRejectsPositionalArguments(t *testing.T) {
 	}
 }
 
-func TestRunReturnsContextCancellation(t *testing.T) {
+func TestRunTreatsCancellationAsACleanStop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
 	var output bytes.Buffer
-	err := runIsolated(t, ctx, []string{"-interval", "24h"}, &output)
-	if !errors.Is(err, context.Canceled) {
-		t.Errorf("run() error = %v, want context cancellation", err)
+	// Ctrl+C and SIGTERM are how the agent is meant to stop, so run reports success and main
+	// exits 0. Reporting the cancellation as an error would force main to tell it apart from a
+	// real failure that arrived alongside it.
+	if err := runIsolated(t, ctx, []string{"-interval", "24h"}, &output); err != nil {
+		t.Errorf("run() error = %v, want nil", err)
 	}
 	if output.Len() != 0 {
 		t.Errorf("run() wrote %q after cancellation, want no output", output.String())
@@ -437,9 +440,6 @@ func TestRunWithOpsAddressServesHealthReadinessAndMetrics(t *testing.T) {
 		"-ops-address", "127.0.0.1:0",
 	}, databaseArgs...)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	addrFound := make(chan string, 1)
 
 	var output bytes.Buffer
@@ -447,10 +447,11 @@ func TestRunWithOpsAddressServesHealthReadinessAndMetrics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Pipe() error = %v", err)
 	}
+	t.Cleanup(func() { errPipeR.Close() })
 
 	done := make(chan error, 1)
 	go func() {
-		done <- runWithErrOutput(ctx, args, &output, errPipeW)
+		done <- runWithErrOutput(t.Context(), args, &output, errPipeW)
 		errPipeW.Close()
 	}()
 
@@ -522,6 +523,35 @@ func TestRunWithBadOpsAddressFailsBeforeOpeningTheDatabase(t *testing.T) {
 	if len(entries) != 0 {
 		t.Errorf("a rejected -ops-address left %v behind, want an untouched directory", entries)
 	}
+}
+
+func TestRunReleasesTheOpsPortWhenALaterStartupStepFails(t *testing.T) {
+	address := freeAddress(t)
+
+	// A blank -database is rejected inside sqlite.Open, which runs after the ops listener binds.
+	err := run(context.Background(), []string{"-ops-address", address, "-database", " ", "-intervals", "1"}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("run() error = nil, want the blank database path rejected")
+	}
+
+	listener, listenErr := net.Listen("tcp", address)
+	if listenErr != nil {
+		t.Fatalf("the ops server still holds %s after run() failed with %v: %v", address, err, listenErr)
+	}
+	listener.Close()
+}
+
+// freeAddress returns a loopback address that is free right now, for a test that needs to know
+// the address before the code under test binds it.
+func freeAddress(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen() error = %v", err)
+	}
+	address := listener.Addr().String()
+	listener.Close()
+	return address
 }
 
 func TestRunSeparatesLogsFromTheRecordStream(t *testing.T) {

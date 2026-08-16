@@ -8,20 +8,16 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
 
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-
 	"github.com/Stewz00/wattfeder/internal/application"
 	"github.com/Stewz00/wattfeder/internal/demo"
 	"github.com/Stewz00/wattfeder/internal/household"
 	"github.com/Stewz00/wattfeder/internal/observability"
-	"github.com/Stewz00/wattfeder/internal/persistence"
 	"github.com/Stewz00/wattfeder/internal/persistence/sqlite"
 	"github.com/Stewz00/wattfeder/internal/simulator"
 )
@@ -31,7 +27,7 @@ func main() {
 	err := run(ctx, os.Args[1:], os.Stdout)
 	stop()
 
-	if err != nil && !errors.Is(err, context.Canceled) {
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -139,112 +135,115 @@ func runWithErrOutput(ctx context.Context, args []string, output, errOutput io.W
 		return err
 	}
 
-	metrics := observability.NewMetrics()
-	readiness := observability.NewReadiness(cfg.Interval)
-
-	var tracerProvider *sdktrace.TracerProvider
-	var tracer *observability.Tracer
-	if *otlpEndpoint != "" {
-		tracerProvider, err = observability.NewTracerProvider(ctx, *otlpEndpoint, "wattfeder")
-		if err != nil {
-			return fmt.Errorf("build tracer provider: %w", err)
-		}
-		tracer = observability.NewTracer(tracerProvider)
-	}
-
-	// The ops listener binds, if configured, before the database opens: a bad -ops-address must
-	// fail startup the same way a bad database path does, leaving nothing behind.
-	var opsServer *observability.Server
-	var opsListener net.Listener
-	if *opsAddress != "" {
-		opsServer = observability.NewServer(*opsAddress, metrics, readiness)
-		opsListener, err = opsServer.Listen()
-		if err != nil {
-			return fmt.Errorf("listen on -ops-address: %w", err)
-		}
-	}
-
-	opsServeErr := make(chan error, 1)
-	if opsServer != nil {
-		go func() { opsServeErr <- opsServer.Serve(opsListener) }()
-		log.Info("ops_server_listening", "address", opsListener.Addr().String())
+	ops, err := startOps(ctx, opsConfig{
+		address:      *opsAddress,
+		otlpEndpoint: *otlpEndpoint,
+		interval:     cfg.Interval,
+		grace:        *shutdownGrace,
+	}, log)
+	if err != nil {
+		return err
 	}
 
 	log.Info("agent_starting", "agent_id", *agentID, "device_id", cfg.DeviceID, "database", *databasePath)
+	agentErr := runAgent(ctx, agentConfig{
+		simulator:     cfg,
+		policy:        policy,
+		clock:         clock,
+		databasePath:  *databasePath,
+		agentID:       *agentID,
+		maxIntervals:  *intervals,
+		shutdownGrace: *shutdownGrace,
+	}, ops, output, log)
 
-	repository, err := sqlite.Open(*databasePath)
+	// The ops stack is closed here rather than deferred, so its own failures stay separate from
+	// the run's instead of being folded into an error the caller has already interpreted.
+	return errors.Join(agentErr, ops.close())
+}
+
+// agentConfig is what the flags decided about the run itself, after validation.
+type agentConfig struct {
+	simulator     simulator.Config
+	policy        household.Policy
+	clock         application.Clock
+	databasePath  string
+	agentID       string
+	maxIntervals  int
+	shutdownGrace time.Duration
+}
+
+// runAgent opens the household's database and processes telemetry until the run ends. The
+// database is closed whatever ends it.
+func runAgent(ctx context.Context, cfg agentConfig, ops *opsStack, output io.Writer, log *slog.Logger) error {
+	repository, err := sqlite.Open(cfg.databasePath)
 	if err != nil {
 		return fmt.Errorf("open persistence: %w", err)
 	}
-	if err := repository.Migrate(ctx); err != nil {
-		return closeRepository(repository, fmt.Errorf("migrate persistence: %w", err))
+
+	runErr := processTelemetry(ctx, cfg, ops, repository, output, log)
+	switch {
+	case runErr == nil:
+		log.Info("run_ended")
+	case errors.Is(runErr, context.Canceled):
+		// Ctrl+C and SIGTERM are how the agent is meant to stop, whether they arrive during
+		// migration or mid-interval. Reporting success here means main never has to tell a clean
+		// stop apart from a real failure that happened to arrive alongside one.
+		log.Info("run_ended", "reason", "cancelled")
+		runErr = nil
+	default:
+		log.Error("run_failed", "error", runErr.Error())
 	}
-	log.Debug("persistence_migrated", "database", *databasePath)
-	snapshot, found, err := repository.Snapshot(ctx, cfg.DeviceID)
+
+	if closeErr := repository.Close(); closeErr != nil {
+		return errors.Join(runErr, fmt.Errorf("close persistence: %w", closeErr))
+	}
+	return runErr
+}
+
+// processTelemetry migrates the database, restores the household's last known state, and runs
+// the edge runtime against the simulator.
+func processTelemetry(
+	ctx context.Context,
+	cfg agentConfig,
+	ops *opsStack,
+	repository *sqlite.Repository,
+	output io.Writer,
+	log *slog.Logger,
+) error {
+	if err := repository.Migrate(ctx); err != nil {
+		return fmt.Errorf("migrate persistence: %w", err)
+	}
+	log.Debug("persistence_migrated", "database", cfg.databasePath)
+
+	snapshot, found, err := repository.Snapshot(ctx, cfg.simulator.DeviceID)
 	if err != nil {
-		return closeRepository(repository, fmt.Errorf("restore device snapshot: %w", err))
+		return fmt.Errorf("restore device snapshot: %w", err)
 	}
 	if found && snapshot.State.DeviceID != "" {
-		cfg.StartingBatterySOCPercent = snapshot.State.BatterySOCPercent
+		cfg.simulator.StartingBatterySOCPercent = snapshot.State.BatterySOCPercent
 	}
 
-	sim, err := simulator.New(cfg)
+	sim, err := simulator.New(cfg.simulator)
 	if err != nil {
-		return closeRepository(repository, err)
+		return err
 	}
-
-	var repoForRun persistence.Repository = repository
-	observers := []application.Observer{}
-	if tracer != nil {
-		// The tracer runs first so the interval span it opens is what every other observer's
-		// context carries, letting the logger read trace_id back out and the traced repository
-		// nest its commit span under the interval span.
-		observers = append(observers, tracer)
-		repoForRun = observability.NewTracedRepository(repository, tracerProvider)
-	}
-	observers = append(observers, observability.NewLogger(log), metrics, readiness)
 
 	encoder := json.NewEncoder(output)
-	runErr := application.Run(ctx, application.Agent{
-		Clock:         clock,
+	return application.Run(ctx, application.Agent{
+		Clock:         cfg.clock,
 		Source:        sim,
 		Sink:          sim,
-		Policy:        policy,
-		Repository:    repoForRun,
-		Observer:      observability.NewMultiObserver(observers...),
-		ID:            *agentID,
-		DeviceID:      cfg.DeviceID,
-		MaxIntervals:  *intervals,
-		ShutdownGrace: *shutdownGrace,
+		Policy:        cfg.policy,
+		Repository:    ops.repository(repository),
+		Observer:      ops.observer(),
+		ID:            cfg.agentID,
+		DeviceID:      cfg.simulator.DeviceID,
+		MaxIntervals:  cfg.maxIntervals,
+		ShutdownGrace: cfg.shutdownGrace,
 		Write: func(record application.Record) error {
 			return encoder.Encode(record)
 		},
 	})
-	if runErr != nil {
-		log.Error("run_failed", "error", runErr.Error())
-		runErr = fmt.Errorf("run simulation: %w", runErr)
-	} else {
-		log.Info("run_ended")
-	}
-
-	log.Debug("agent_shutting_down")
-	if tracerProvider != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), *shutdownGrace)
-		if err := tracerProvider.Shutdown(shutdownCtx); err != nil {
-			runErr = errors.Join(runErr, fmt.Errorf("shut down tracer provider: %w", err))
-		}
-		cancel()
-	}
-	if opsServer != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), *shutdownGrace)
-		if err := opsServer.Shutdown(shutdownCtx); err != nil {
-			runErr = errors.Join(runErr, fmt.Errorf("shut down ops server: %w", err))
-		}
-		cancel()
-		<-opsServeErr
-	}
-
-	return closeRepository(repository, runErr)
 }
 
 // buildClock returns the Clock matching pace: "real" waits one interval between observations;
@@ -258,11 +257,4 @@ func buildClock(pace string, start time.Time) (application.Clock, error) {
 	default:
 		return nil, fmt.Errorf(`invalid -pace value %q: must be "real" or "fast"`, pace)
 	}
-}
-
-func closeRepository(repository *sqlite.Repository, priorErr error) error {
-	if err := repository.Close(); err != nil {
-		return errors.Join(priorErr, fmt.Errorf("close persistence: %w", err))
-	}
-	return priorErr
 }
