@@ -1,12 +1,14 @@
 GO       ?= go
 GOFMT    ?= gofmt
+DOCKER   ?= docker
 PACKAGES ?= ./...
 DEMO_SCENARIO ?= scenarios/demo.json
 FAULT_SCENARIO ?= scenarios/unreliable-telemetry-day.json
+IMAGE ?= wattfeder
 
 .DEFAULT_GOAL := help
 
-.PHONY: help run agent demo demo-faults demo-clean check verify validate fmt fmt-check mod-tidy-check mod-verify vet test build
+.PHONY: help run agent demo demo-faults demo-clean check verify validate fmt fmt-check mod-tidy-check mod-verify vet test build docker-build compose-up compose-down
 
 help: ## Show the available targets.
 	@awk 'BEGIN {FS = ":.*## "; printf "Usage: make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -27,6 +29,15 @@ demo-faults: ## Run the unreliable-telemetry demo scenario.
 
 demo-clean: ## Remove state created by the demo.
 	@printf 'No demo state was created.\n'
+
+docker-build: ## Build the edge agent's container image.
+	@$(DOCKER) build -t $(IMAGE) .
+
+compose-up: ## Start the agent, Prometheus, and Jaeger locally.
+	@$(DOCKER) compose up -d
+
+compose-down: ## Stop the local Compose environment.
+	@$(DOCKER) compose down
 
 check: verify validate ## Run all verification and validation checks.
 
