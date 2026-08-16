@@ -9,8 +9,9 @@ arrives out of order, arrives broken, or does not arrive at all. Wattfeder is
 built around that fact. Every observation gets one explicit outcome, and one
 bad observation never stops the ones after it.
 
-Current version: **v0.4**. One household, one long-running edge process, local
-SQLite storage. There is no cloud service yet.
+Current version: **v0.5**. One household, one long-running edge process, local
+SQLite storage, and enough instrumentation to watch it run. There is no cloud
+service yet.
 
 ## Try it in one command
 

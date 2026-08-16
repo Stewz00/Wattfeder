@@ -3,6 +3,7 @@ package observability
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"time"
@@ -42,7 +43,14 @@ type Server struct {
 // NewServer builds a Server bound to address once Listen is called. address is not resolved
 // here, so building a Server never fails.
 func NewServer(address string, metrics *Metrics, readiness *Readiness) *Server {
-	return &Server{httpServer: &http.Server{Addr: address, Handler: newMux(metrics, readiness, time.Now)}}
+	return &Server{httpServer: &http.Server{
+		Addr:    address,
+		Handler: newMux(metrics, readiness, time.Now),
+		// Without this, a client that opens a connection and never finishes sending its headers
+		// holds a goroutine indefinitely. The endpoints are unauthenticated and Compose publishes
+		// them, so the cheapest bound belongs here.
+		ReadHeaderTimeout: 5 * time.Second,
+	}}
 }
 
 // Listen binds the configured address without serving yet, so a bad address is discovered
@@ -53,7 +61,7 @@ func (s *Server) Listen() (net.Listener, error) {
 
 // Serve accepts connections on listener until Shutdown is called.
 func (s *Server) Serve(listener net.Listener) error {
-	if err := s.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+	if err := s.httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil

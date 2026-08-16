@@ -129,6 +129,13 @@ func TestMetricsEndpointServesTheWattfederSeries(t *testing.T) {
 	}
 }
 
+func TestServerBoundsHowLongAClientMayTakeToSendItsHeaders(t *testing.T) {
+	server := NewServer("127.0.0.1:0", NewMetrics(), NewReadiness(time.Hour))
+	if server.httpServer.ReadHeaderTimeout <= 0 {
+		t.Error("ReadHeaderTimeout = 0: a client could hold a connection open by never finishing its headers")
+	}
+}
+
 func TestServerStartsAndStopsOnAnEphemeralPort(t *testing.T) {
 	server := NewServer("127.0.0.1:0", NewMetrics(), NewReadiness(time.Hour))
 	listener, err := server.Listen()

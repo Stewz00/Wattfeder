@@ -14,8 +14,10 @@ services:
     depends_on:
       - jaeger
 
+  # Both images are pinned: `make compose-up` should start the same environment next year as it
+  # does today.
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.13.2
     volumes:
       - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
@@ -24,7 +26,7 @@ services:
       - agent
 
   jaeger:
-    image: jaegertracing/all-in-one:latest
+    image: jaegertracing/all-in-one:1.76.0
     environment:
       - COLLECTOR_OTLP_ENABLED=true
     ports:
