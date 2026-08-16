@@ -1,0 +1,283 @@
+name: Nightly Maintenance
+
+# Two stages, two Claude sessions.
+#
+#   select    (Opus 5, high effort, read-only)  -> at most one improvement, or SKIP
+#   implement (Sonnet 5, medium effort)         -> implements it, workflow gates the PR
+#
+# The stages share nothing but the structured handoff: `implement` checks the
+# repository out again in a fresh job, so no Opus reasoning or working context
+# leaks into the implementation session.
+#
+# Both stages hand their result back through `--json-schema`, so the shape is
+# validated by the CLI rather than parsed out of prose.
+#
+# The workflow never merges. It only ever opens a pull request.
+
+on:
+  schedule:
+    # 02:17 UTC. Off the hour because scheduled runs bunch up on round times.
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-maintenance
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Where the handoff lives between the stages. It sits inside the workspace so
+  # the implement session can read it with a relative path, and it is deleted
+  # before anything is staged for commit.
+  RUN_DIR: .nightly-run
+
+jobs:
+  select:
+    name: Select one improvement
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      # No write scope, and no write tools below: this stage only reads.
+      contents: read
+    outputs:
+      decision: ${{ steps.handoff.outputs.decision }}
+      slug: ${{ steps.handoff.outputs.slug }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Select a maintenance improvement
+        id: select
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: |
+            --model claude-opus-5
+            --effort high
+            --max-turns 40
+            --allowed-tools Read,Grep,Glob,Bash
+            --json-schema '{"type":"object","additionalProperties":false,"properties":{"decision":{"type":"string","enum":["IMPLEMENT","SKIP"]},"title":{"type":"string"},"problem":{"type":"string"},"evidence":{"type":"array","items":{"type":"string"}},"scope":{"type":"string"},"acceptance_criteria":{"type":"array","items":{"type":"string"}},"test_plan":{"type":"array","items":{"type":"string"}},"docs_impact":{"type":"string"},"business_logic_risk":{"type":"string"}},"required":["decision","title","problem","evidence","scope","acceptance_criteria","test_plan","docs_impact","business_logic_risk"]}'
+          prompt: |
+            Inspect the current repository and identify at most one small, clearly worthwhile maintenance improvement. Returning SKIP is preferable to inventing work.
+
+            Prioritize readability, maintainability, tests, naming, documentation, small local simplifications, and removal of justified local complexity. Match the repository's current maturity and prefer incremental improvement over idealized architecture. Do not propose speculative abstractions, architectural changes, feature work, dependency churn, or changes merely to make code look cleaner.
+
+            Comments and docs belong only where domain knowledge, library-specific behavior, constraints, or otherwise surprising code needs explanation; keep them concise and human-readable. Documentation should change only when the implementation makes existing documentation inaccurate or materially incomplete. Read the repository instructions in AGENTS.md, and anything it points at, before judging what counts as worthwhile here.
+
+            Business behavior must not change. Refactoring code containing business logic is allowed only when behavior remains identical and adequate regression tests protect it.
+
+            You are selecting only. Do not modify any file. Return the selection as this run's structured output:
+
+            - `title`: a short imperative name for the change.
+            - `problem`: what is wrong today, in one or two sentences.
+            - `evidence`: concrete citations, each formatted as "file/path: reason".
+            - `scope`: what the implementation may touch, and what it must not.
+            - `acceptance_criteria`: the conditions that decide whether the change succeeded.
+            - `test_plan`: the checks that should prove it.
+            - `docs_impact`: "none", or which documents go stale without an update.
+            - `business_logic_risk`: "none", or the behavior that could shift.
+
+            Keep it small: a handful of short fields, not an essay. On SKIP, put a short reason in `title`, leave the list fields empty, and set the remaining strings to "none".
+
+      - name: Persist and validate the handoff
+        id: handoff
+        env:
+          STRUCTURED: ${{ steps.select.outputs.structured_output }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$STRUCTURED" ]; then
+            echo "::error::The select stage returned no structured output."
+            exit 1
+          fi
+
+          mkdir -p "$RUN_DIR"
+          file="$RUN_DIR/handoff.json"
+          printf '%s' "$STRUCTURED" > "$file"
+
+          if ! jq -e . "$file" >/dev/null; then
+            echo "::error::The handoff is not valid JSON."
+            exit 1
+          fi
+
+          decision="$(jq -r '.decision' "$file")"
+
+          # Slug for the branch name. Keep it strictly [a-z0-9-] so it can be
+          # interpolated into a git ref without further quoting concerns.
+          slug="$(jq -r '.title' "$file" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -e 's/[^a-z0-9]\+/-/g' -e 's/^-//' -e 's/-$//' \
+            | cut -c1-32 \
+            | sed -e 's/-$//')"
+          [ -n "$slug" ] || slug="maintenance"
+
+          echo "decision=$decision" >> "$GITHUB_OUTPUT"
+          echo "slug=$slug" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Selection: $decision"
+            echo
+            echo '```json'
+            jq . "$file"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Confirm no tracked file was modified
+        run: |
+          set -euo pipefail
+          if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+            echo "::error::The select stage modified tracked files. Refusing to hand off."
+            git status --porcelain --untracked-files=no
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-handoff
+          path: ${{ env.RUN_DIR }}/handoff.json
+          retention-days: 14
+
+  implement:
+    name: Implement the selected improvement
+    needs: select
+    if: needs.select.outputs.decision == 'IMPLEMENT'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      # Fresh checkout, fresh Claude session. The only inbound context is the
+      # repository itself and the handoff downloaded below.
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Fetch the handoff
+        uses: actions/download-artifact@v4
+        with:
+          name: nightly-handoff
+          path: ${{ env.RUN_DIR }}
+
+      - name: Implement
+        id: implement
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: |
+            --model claude-sonnet-5
+            --effort medium
+            --max-turns 60
+            --allowed-tools Read,Grep,Glob,Bash,Edit,Write
+            --json-schema '{"type":"object","additionalProperties":false,"properties":{"create_pr":{"type":"boolean"},"pr_title":{"type":"string"},"pr_body":{"type":"string"},"reason":{"type":"string"}},"required":["create_pr","pr_title","pr_body","reason"]}'
+          prompt: |
+            Read the maintenance handoff at `.nightly-run/handoff.json` and implement exactly the improvement it selects.
+
+            Treat the handoff as scope, not as unquestionable truth. If implementation reveals that the change is unnecessary, unsafe, larger than expected, or cannot satisfy the stated constraints, stop without creating a PR. Do not expand scope, prefer the smallest clear implementation, and do not introduce abstractions for hypothetical future requirements.
+
+            Preserve observable business behavior. If modifying business-logic code, ensure regression coverage exists before relying on the refactor.
+
+            Add comments only for genuinely non-obvious domain or library reasoning, following the repository instructions in AGENTS.md. Update documentation only when required by the change. Run the repository's relevant checks: `make check` covers formatting, module metadata, `go vet`, tests, and compilation.
+
+            Do not run any git command. Do not commit, branch, push, or open a pull request; the workflow does that, and only if your verdict and an independent `make check` both allow it. Leave no build artifacts or scratch files in the working tree, because everything left behind is staged into the pull request.
+
+            Return your verdict as this run's structured output:
+
+            - `create_pr`: false unless all of these hold — there is a meaningful diff, every acceptance criterion in the handoff is satisfied, the relevant tests pass, the static checks pass, scope did not expand, and no unintended behavioral change was introduced.
+            - `pr_title`: a concise imperative description of the change.
+            - `reason`: one sentence; when `create_pr` is false, why you stopped.
+            - `pr_body`: markdown containing exactly four sections and nothing else — `## Why` (the selection rationale from the handoff), `## Change` (what you implemented), `## Verification` (the checks you ran and their result), and `## Risk` (the behavioral or documentation risk, or `none`). Leave it empty when `create_pr` is false.
+
+      - name: Read the verdict
+        id: verdict
+        env:
+          STRUCTURED: ${{ steps.implement.outputs.structured_output }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$STRUCTURED" ]; then
+            echo "::notice::The implement stage returned no verdict. No pull request will be opened."
+            echo "create_pr=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          file="$RUNNER_TEMP/verdict.json"
+          printf '%s' "$STRUCTURED" > "$file"
+
+          if ! jq -e . "$file" >/dev/null; then
+            echo "::error::The verdict is not valid JSON."
+            exit 1
+          fi
+
+          create_pr="$(jq -r 'if .create_pr == true then "true" else "false" end' "$file")"
+          echo "create_pr=$create_pr" >> "$GITHUB_OUTPUT"
+
+          jq -r '.pr_title' "$file" > "$RUNNER_TEMP/pr-title.txt"
+          jq -r '.pr_body' "$file" > "$RUNNER_TEMP/pr-body.md"
+
+          {
+            echo "### Implementation verdict: create_pr=$create_pr"
+            echo
+            jq -r '.reason' "$file"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Clear the scratch directory
+        run: rm -rf "$RUN_DIR"
+
+      - name: Check for a meaningful diff
+        id: diff
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "::notice::No diff was produced. No pull request will be opened."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git --no-pager diff --stat
+          fi
+
+      - name: Verify independently
+        # The gate does not trust the model's own report of the checks. Note that
+        # a pull request opened with GITHUB_TOKEN does not trigger ci.yml, so this
+        # run is the only automated verification the change gets.
+        if: steps.verdict.outputs.create_pr == 'true' && steps.diff.outputs.changed == 'true'
+        run: make check
+
+      - name: Open the pull request
+        if: steps.verdict.outputs.create_pr == 'true' && steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SLUG: ${{ needs.select.outputs.slug }}
+        run: |
+          set -euo pipefail
+
+          branch="automation/nightly-$(date -u +%Y-%m-%d)-$SLUG"
+
+          title="$(cat "$RUNNER_TEMP/pr-title.txt")"
+          [ -n "$title" ] || title="maintenance"
+
+          if [ ! -s "$RUNNER_TEMP/pr-body.md" ]; then
+            echo "::error::create_pr is true but no PR body was returned."
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b "$branch"
+          git add -A
+          git commit -m "chore: $title"
+          git push --set-upstream origin "$branch"
+
+          gh pr create \
+            --base "${{ github.event.repository.default_branch }}" \
+            --head "$branch" \
+            --title "[nightly] $title" \
+            --body-file "$RUNNER_TEMP/pr-body.md"
