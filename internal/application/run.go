@@ -49,6 +49,10 @@ type Agent struct {
 	Policy     household.Policy
 	Repository persistence.Repository
 
+	// Observer attaches an adapter to interval processing — logging, metrics, tracing. A nil
+	// Observer disables observation entirely.
+	Observer Observer
+
 	// ID identifies this installed agent instance in every emitted Record. It is a runtime
 	// value only: nothing persists it or reads it back out of storage.
 	ID string
@@ -120,86 +124,126 @@ func Run(ctx context.Context, agent Agent) error {
 			}
 		}
 
-		envelope, err := agent.Source.Next(ctx)
-		if errors.Is(err, ErrSourceExhausted) {
+		newState, newHealth, exhausted, err := processInterval(ctx, agent, healthPolicy, interval, state, health)
+		if exhausted {
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("get telemetry observation: %w", err)
+			return err
 		}
-
-		now := agent.Clock.Now()
-		classification := household.Classify(household.ClassifyInput{
-			Envelope:    envelope,
-			PriorState:  state,
-			PriorHealth: health,
-			Policy:      healthPolicy,
-			Interval:    interval,
-			Now:         now,
-		})
-
-		var command *household.Command
-		if classification.Disposition == household.DispositionAccepted && !classification.SuppressCommand {
-			decided := agent.Policy.Decide(*classification.State)
-			command = &decided
-		}
-
-		receivedAt := now
-		if envelope != nil && !envelope.ReceivedAt.IsZero() && envelope.ReceivedAt.Location() == time.UTC {
-			receivedAt = envelope.ReceivedAt
-		}
-
-		observationResult := buildObservationResult(agent.DeviceID, receivedAt, classification, command)
-
-		// Commit and apply on a context cancellation cannot reach, so an observation the
-		// runtime already classified is neither abandoned before it is durable nor recorded as
-		// commanded without the command reaching the battery. The grace bounds both.
-		graceCtx, endGrace := context.WithTimeout(context.WithoutCancel(ctx), agent.ShutdownGrace)
-
-		status, err := agent.Repository.CommitProcessing(graceCtx, observationResult)
-		if err != nil {
-			endGrace()
-			return fmt.Errorf("commit processing result within the %s shutdown grace: %w", agent.ShutdownGrace, err)
-		}
-
-		result := outcome{
-			disposition:   classification.Disposition,
-			reason:        classification.Reason,
-			telemetry:     classification.Telemetry,
-			stateUpdated:  classification.State != nil,
-			storedHistory: classification.Telemetry != nil,
-			health:        classification.Health,
-			command:       command,
-		}
-
-		if status == persistence.CommitDuplicate {
-			// The event still gets reported with its telemetry, but nothing about it became
-			// durable this time round, so no durable record changed — health included.
-			result.disposition = household.DispositionDuplicate
-			result.reason = "event ID was already processed"
-			result.stateUpdated = false
-			result.storedHistory = false
-			result.health = health
-			result.command = nil
-		} else {
-			if classification.State != nil {
-				state = *classification.State
-			}
-			health = classification.Health
-		}
-
-		err = agent.Sink.Apply(graceCtx, result.command)
-		endGrace()
-		if err != nil {
-			return fmt.Errorf("apply control command: %w", err)
-		}
-
-		if err := agent.Write(buildRecord(agent, receivedAt, result)); err != nil {
-			return fmt.Errorf("write simulation record: %w", err)
-		}
+		state, health = newState, newHealth
 	}
 
 	return nil
+}
+
+// processInterval handles one interval: it opens the observer scope, gets the next observation,
+// classifies it, commits and applies it, and writes the resulting Record — closing the scope
+// with defer regardless of which of those steps ends the interval. exhausted reports that the
+// source has no more observations, which ends the run cleanly rather than as a failure.
+func processInterval(
+	ctx context.Context,
+	agent Agent,
+	healthPolicy household.HealthPolicy,
+	interval time.Duration,
+	state household.State,
+	health household.DeviceHealth,
+) (newState household.State, newHealth household.DeviceHealth, exhausted bool, err error) {
+	newState, newHealth = state, health
+
+	observer := agent.Observer
+	if observer == nil {
+		observer = noopObserver{}
+	}
+	scopeCtx, end := observer.BeginInterval(ctx)
+
+	var record Record
+	defer func() { end(record, err) }()
+
+	envelope, nextErr := agent.Source.Next(scopeCtx)
+	if errors.Is(nextErr, ErrSourceExhausted) {
+		return newState, newHealth, true, nil
+	}
+	if nextErr != nil {
+		err = fmt.Errorf("get telemetry observation: %w", nextErr)
+		return newState, newHealth, false, err
+	}
+
+	now := agent.Clock.Now()
+	classification := household.Classify(household.ClassifyInput{
+		Envelope:    envelope,
+		PriorState:  state,
+		PriorHealth: health,
+		Policy:      healthPolicy,
+		Interval:    interval,
+		Now:         now,
+	})
+
+	var command *household.Command
+	if classification.Disposition == household.DispositionAccepted && !classification.SuppressCommand {
+		decided := agent.Policy.Decide(*classification.State)
+		command = &decided
+	}
+
+	receivedAt := now
+	if envelope != nil && !envelope.ReceivedAt.IsZero() && envelope.ReceivedAt.Location() == time.UTC {
+		receivedAt = envelope.ReceivedAt
+	}
+
+	observationResult := buildObservationResult(agent.DeviceID, receivedAt, classification, command)
+
+	// Commit and apply on a context cancellation cannot reach, so an observation the runtime
+	// already classified is neither abandoned before it is durable nor recorded as commanded
+	// without the command reaching the battery. The grace bounds both, and derives from the
+	// scope context so anything the observer attached — a trace span, for instance — survives
+	// into the grace window.
+	graceCtx, endGrace := context.WithTimeout(context.WithoutCancel(scopeCtx), agent.ShutdownGrace)
+	defer endGrace()
+
+	status, err := agent.Repository.CommitProcessing(graceCtx, observationResult)
+	if err != nil {
+		err = fmt.Errorf("commit processing result within the %s shutdown grace: %w", agent.ShutdownGrace, err)
+		return newState, newHealth, false, err
+	}
+
+	result := outcome{
+		disposition:   classification.Disposition,
+		reason:        classification.Reason,
+		telemetry:     classification.Telemetry,
+		stateUpdated:  classification.State != nil,
+		storedHistory: classification.Telemetry != nil,
+		health:        classification.Health,
+		command:       command,
+	}
+
+	if status == persistence.CommitDuplicate {
+		// The event still gets reported with its telemetry, but nothing about it became durable
+		// this time round, so no durable record changed — health included.
+		result.disposition = household.DispositionDuplicate
+		result.reason = "event ID was already processed"
+		result.stateUpdated = false
+		result.storedHistory = false
+		result.health = health
+		result.command = nil
+	} else {
+		if classification.State != nil {
+			newState = *classification.State
+		}
+		newHealth = classification.Health
+	}
+
+	if err = agent.Sink.Apply(graceCtx, result.command); err != nil {
+		err = fmt.Errorf("apply control command: %w", err)
+		return newState, newHealth, false, err
+	}
+
+	record = buildRecord(agent, receivedAt, result)
+	if err = agent.Write(record); err != nil {
+		err = fmt.Errorf("write simulation record: %w", err)
+		return newState, newHealth, false, err
+	}
+
+	return newState, newHealth, false, nil
 }
 
 // outcome is one interval's reportable result, after the commit settled whether the event was

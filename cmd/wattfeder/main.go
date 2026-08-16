@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/Stewz00/wattfeder/internal/application"
 	"github.com/Stewz00/wattfeder/internal/demo"
 	"github.com/Stewz00/wattfeder/internal/household"
+	"github.com/Stewz00/wattfeder/internal/observability"
 	"github.com/Stewz00/wattfeder/internal/persistence/sqlite"
 	"github.com/Stewz00/wattfeder/internal/simulator"
 )
@@ -31,7 +33,14 @@ func main() {
 	}
 }
 
+// run parses arguments and executes the agent, writing the record stream to output and
+// structured logs to os.Stderr. Logs never share output's stream: make demo, make demo-faults
+// and the CLI tests all parse output as newline-delimited JSON records.
 func run(ctx context.Context, args []string, output io.Writer) error {
+	return runWithErrOutput(ctx, args, output, os.Stderr)
+}
+
+func runWithErrOutput(ctx context.Context, args []string, output, errOutput io.Writer) error {
 	flags := flag.NewFlagSet("wattfeder", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 
@@ -50,6 +59,7 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	intervals := flags.Int("intervals", 0, "number of intervals to process; 0 runs until stopped")
 	pace := flags.String("pace", "real", `"real" waits one interval between observations; "fast" does not wait`)
 	shutdownGrace := flags.Duration("shutdown-grace", 5*time.Second, "how long an in-flight commit may finish after cancellation")
+	logLevel := flags.String("log-level", "info", `log verbosity: "debug", "info", "warn" or "error"`)
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprintf(output, "Usage: %s [options]\n\nOptions:\n", flags.Name())
@@ -65,6 +75,12 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	if strings.TrimSpace(*agentID) == "" {
 		return fmt.Errorf("agent ID must not be empty")
 	}
+	level, err := observability.ParseLevel(*logLevel)
+	if err != nil {
+		return err
+	}
+	log := slog.New(slog.NewJSONHandler(errOutput, &slog.HandlerOptions{Level: level}))
+
 	if *scenarioPath != "" {
 		var conflictingFlags []string
 		flags.Visit(func(option *flag.Flag) {
@@ -117,6 +133,8 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 		return err
 	}
 
+	log.Info("agent_starting", "agent_id", *agentID, "device_id", cfg.DeviceID, "database", *databasePath)
+
 	repository, err := sqlite.Open(*databasePath)
 	if err != nil {
 		return fmt.Errorf("open persistence: %w", err)
@@ -124,6 +142,7 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 	if err := repository.Migrate(ctx); err != nil {
 		return closeRepository(repository, fmt.Errorf("migrate persistence: %w", err))
 	}
+	log.Debug("persistence_migrated", "database", *databasePath)
 	snapshot, found, err := repository.Snapshot(ctx, cfg.DeviceID)
 	if err != nil {
 		return closeRepository(repository, fmt.Errorf("restore device snapshot: %w", err))
@@ -144,6 +163,7 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 		Sink:          sim,
 		Policy:        policy,
 		Repository:    repository,
+		Observer:      observability.NewLogger(log),
 		ID:            *agentID,
 		DeviceID:      cfg.DeviceID,
 		MaxIntervals:  *intervals,
@@ -153,9 +173,13 @@ func run(ctx context.Context, args []string, output io.Writer) error {
 		},
 	})
 	if runErr != nil {
+		log.Error("run_failed", "error", runErr.Error())
 		runErr = fmt.Errorf("run simulation: %w", runErr)
+	} else {
+		log.Info("run_ended")
 	}
 
+	log.Debug("agent_shutting_down")
 	return closeRepository(repository, runErr)
 }
 

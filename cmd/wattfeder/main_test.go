@@ -188,6 +188,7 @@ func TestRunRejectsInvalidArguments(t *testing.T) {
 		{name: "zero battery capacity", args: []string{"-battery-capacity-kwh", "0"}, wantErr: "battery capacity"},
 		{name: "blank database path", args: []string{"-database", " "}, wantErr: "SQLite path"},
 		{name: "invalid pace", args: []string{"-pace", "sideways", "-intervals", "1"}, wantErr: "invalid -pace value"},
+		{name: "invalid log level", args: []string{"-log-level", "shout", "-intervals", "1"}, wantErr: "invalid -log-level value"},
 	}
 
 	for _, tt := range tests {
@@ -426,6 +427,46 @@ func runIsolated(t *testing.T, ctx context.Context, args []string, output io.Wri
 	t.Helper()
 	databaseArgs := []string{"-database", filepath.Join(t.TempDir(), "wattfeder.db")}
 	return run(ctx, append(args, databaseArgs...), output)
+}
+
+func TestRunSeparatesLogsFromTheRecordStream(t *testing.T) {
+	var output, errOutput bytes.Buffer
+	databaseArgs := []string{"-database", filepath.Join(t.TempDir(), "wattfeder.db")}
+	args := append([]string{"-interval", "24h", "-pace", "fast", "-intervals", "2"}, databaseArgs...)
+
+	if err := runWithErrOutput(context.Background(), args, &output, &errOutput); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+
+	if errOutput.Len() == 0 {
+		t.Fatal("errOutput is empty, want structured log lines")
+	}
+	decoder := json.NewDecoder(&errOutput)
+	logLines := 0
+	for {
+		var line map[string]any
+		if err := decoder.Decode(&line); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			t.Fatalf("decode log line: %v", err)
+		}
+		if line["msg"] == "interval_processed" {
+			logLines++
+		}
+	}
+	if logLines != 2 {
+		t.Errorf("interval_processed log lines = %d, want 2", logLines)
+	}
+
+	decoder = json.NewDecoder(&output)
+	for {
+		var record application.Record
+		if err := decoder.Decode(&record); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			t.Fatalf("decode record: %v (stdout must carry only records)", err)
+		}
+	}
 }
 
 func decodeRecords(t *testing.T, input io.Reader) []application.Record {
