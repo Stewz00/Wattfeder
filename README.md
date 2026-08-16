@@ -28,6 +28,13 @@ make agent        # The edge agent, real pacing, until Ctrl+C
 make check        # Format, analyze, test, and build
 ```
 
+Structured logs go to stderr, one JSON line per interval, so they never mix
+with the record stream on stdout. Start the agent with `-ops-address :8080`
+for `/healthz`, `/readyz`, and Prometheus `/metrics`, and `-otlp-endpoint
+localhost:4318` to export a trace per interval. `make compose-up` runs the
+agent alongside Prometheus and Jaeger locally; see
+[Operations](docs/OPERATIONS.md) for what to do with any of it.
+
 ## How it works
 
 ```text
@@ -62,6 +69,7 @@ hardware. Each of those arrives in a later milestone, or not at all.
 - [Setup](docs/SETUP.md) — install and run
 - [Demo](docs/DEMO.md) — the two scenarios, line by line
 - [Architecture](docs/ARCHITECTURE.md) — components and data flow
+- [Operations](docs/OPERATIONS.md) — health, readiness, metrics, tracing, and common failures
 - [Model](docs/MODEL.md) — the energy and battery model
 - [Decision records](docs/engineering/adr/) — why the system is built this way
 - [Roadmap](docs/roadmap.md) — what is done and what comes next

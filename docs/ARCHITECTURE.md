@@ -42,6 +42,41 @@ without changing `internal/application` or `internal/household`.
 | Battery policy | Choose charge, discharge, or idle for an accepted, non-suppressed event. | Current household values | Battery command and reason | Battery capacity and interval |
 | SQLite repository | Migrate the schema, restore device snapshots, and atomically persist each observation result and device health. | Observation result | Stored or duplicate status | SQLite adapter |
 | JSON writer | Write records to the terminal. | Application records | Newline-delimited JSON | Standard output |
+| `application.Observer` | Attach an adapter to interval processing without the runtime importing it. | Interval context | Scoped context and a close function | None — a seam, not an implementation |
+| `internal/observability` | Implement the seam: structured logs, Prometheus metrics, readiness, and OpenTelemetry tracing. | Interval records, errors | Log lines, metric series, spans | `application.Observer`, `persistence.Repository` |
+
+## Observability
+
+`internal/observability` is an adapter package, not a layer: `internal/architecture`
+fails the build if `internal/application` imports anything but `internal/household`
+and `internal/persistence`, so Prometheus and OpenTelemetry types can never reach
+the runtime. Instead, `application.Agent.Observer` is one narrow seam —
+`BeginInterval` opens a scope and returns a context plus a close function, in the
+same style as `Clock`, `TelemetrySource`, and `CommandSink`. A nil `Observer`
+disables observation entirely, which is what `internal/demo` and every fixed
+scenario still do.
+
+`cmd/wattfeder` composes four observers behind `observability.NewMultiObserver`:
+
+* `Logger` writes one JSON line per interval to stderr — never stdout, which
+  stays the record stream `make demo`, `make demo-faults`, and the CLI tests
+  parse as newline-delimited JSON.
+* `Metrics` exports the `wattfeder_*` Prometheus series on a private registry.
+* `Readiness` tracks whether the runtime can currently process and persist
+  telemetry, fed by the interval scope itself rather than an out-of-band probe:
+  the SQLite adapter allows exactly one open connection
+  (`repository.go`'s `SetMaxOpenConns(1)`), so a readiness handler that queried
+  storage independently would contend with the runtime's single writer.
+* `Tracer` opens one span per interval when `-otlp-endpoint` is set, and its
+  trace ID flows into the same interval's log line. `TracedRepository` decorates
+  `persistence.Repository` with a child span around `CommitProcessing`, so the
+  SQLite adapter itself stays free of any tracing import — the decorator is the
+  only place OpenTelemetry meets storage.
+
+`-ops-address` serves `/healthz` (liveness), `/readyz` (readiness, fed by
+`Readiness`), and `/metrics` (the `Metrics` registry). It defaults to empty, so
+`make run`, the demo, and the fixed scenarios stay hermetic and the two-agent
+integration test cannot collide on a port.
 
 ## Data flow
 
@@ -150,8 +185,8 @@ failure.
 - A crash after the database commit but before command application can leave
   durable state ahead of command delivery; recovery for that window is not yet
   defined.
-- Health endpoints and runtime metrics are not implemented; device health is
-  durable but only observable through persisted records and application
-  output, not a live query interface.
+- Device health is exported as a gauge, not a readiness check: readiness
+  answers whether this agent can currently process and persist telemetry, not
+  whether the household's devices are healthy.
 - Planned components are listed in the [roadmap](roadmap.md), not in the current
   architecture diagram.

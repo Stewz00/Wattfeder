@@ -5,9 +5,12 @@
 - Go 1.26.5, as declared in `go.mod`
 - Make for the repository commands
 - Git to clone the repository
+- Docker, only for `make docker-build` and `make compose-up`
 
 The project uses a pure-Go SQLite module and does not require a separately
-installed database server, Docker, or a message broker.
+installed database server or a message broker. Docker is optional: it packages
+the agent and runs it alongside Prometheus and Jaeger for local observability,
+but every other command in this document runs without it.
 
 ## Installation
 
@@ -39,6 +42,9 @@ select a different database file.
 | `-intervals` | `0` | Number of intervals to process; `0` runs until stopped |
 | `-pace` | `real` | `real` waits one interval between observations; `fast` does not wait |
 | `-shutdown-grace` | `5s` | How long an in-flight commit may finish after cancellation |
+| `-log-level` | `info` | Log verbosity: `debug`, `info`, `warn`, or `error` |
+| `-ops-address` | *(empty)* | Address for `/healthz`, `/readyz`, and `/metrics`; empty serves nothing |
+| `-otlp-endpoint` | *(empty)* | OTLP/HTTP collector, e.g. `localhost:4318`; empty disables tracing |
 
 `-agent-id` names the instance in the `agent_id` field of every record it
 writes, but stays a runtime value: it is not written to SQLite and nothing reads
@@ -87,6 +93,41 @@ interval that follows is still processed and reported. Choose a later
 Two agents run independently as long as each has its own `-database` (and
 normally its own `-agent-id` and `-device-id`); neither one's records or
 device state affect the other's.
+
+## Observability
+
+Structured logs go to stderr, one JSON line per interval, so the record stream
+on stdout stays clean:
+
+```bash
+go run ./cmd/wattfeder -agent-id agent-001 -interval 5s 1>/dev/null
+```
+
+To also serve `/healthz`, `/readyz`, and Prometheus `/metrics`, and to export
+traces to an OTLP/HTTP collector:
+
+```bash
+go run ./cmd/wattfeder -agent-id agent-001 -interval 5s \
+  -ops-address :8080 -otlp-endpoint localhost:4318
+```
+
+See `docs/OPERATIONS.md` for what each endpoint and metric means and how to
+use them to diagnose a running agent.
+
+## Docker Compose
+
+`make compose-up` starts the agent alongside Prometheus (scraping
+`/metrics`) and Jaeger (receiving OTLP traces):
+
+```bash
+make compose-up
+open http://localhost:9090   # Prometheus, target "wattfeder" should be up
+open http://localhost:16686  # Jaeger UI, service "wattfeder"
+make compose-down
+```
+
+The agent's database lives on a named Docker volume, so it survives
+`docker compose restart`.
 
 ## Test command
 
