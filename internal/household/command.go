@@ -5,14 +5,20 @@ import (
 	"strings"
 )
 
+// Decision classifies the direction a command asks a battery to move power in.
 type Decision string
 
 const (
-	DecisionCharge    Decision = "charge"
+	// DecisionCharge means the battery should draw power in.
+	DecisionCharge Decision = "charge"
+	// DecisionDischarge means the battery should send power out.
 	DecisionDischarge Decision = "discharge"
-	DecisionIdle      Decision = "idle"
+	// DecisionIdle means the battery should neither charge nor discharge.
+	DecisionIdle Decision = "idle"
 )
 
+// Command instructs a battery to charge, discharge, or idle for an interval.
+// PowerKW is a non-negative magnitude in kW; Decision, not the sign of PowerKW, gives the direction.
 type Command struct {
 	Decision Decision
 	PowerKW  float64
