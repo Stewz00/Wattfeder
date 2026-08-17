@@ -16,8 +16,9 @@ name: Nightly Maintenance
 
 on:
   schedule:
-    # 02:17 UTC. Off the hour because scheduled runs bunch up on round times.
-    - cron: "17 2 * * *"
+    # 04:27 Berlin time. Off the hour because scheduled runs bunch up on round times.
+    - cron: "27 4 * * *"
+      timezone: "Europe/Berlin"
   workflow_dispatch:
 
 concurrency:
