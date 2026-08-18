@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -178,5 +179,69 @@ func TestRunIsDeterministicAndMatchesExpectedResult(t *testing.T) {
 			telemetryEventID,
 			decisionEventID,
 		)
+	}
+}
+
+// The fixture always discharges, so "charge" is a guaranteed mismatch.
+func TestRunReturnsErrorOnDecisionMismatch(t *testing.T) {
+	input := strings.Replace(validScenarioJSON, `"discharge"`, `"charge"`, 1)
+	scenario, err := ParseScenario(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("ParseScenario() error = %v", err)
+	}
+
+	err = Run(context.Background(), scenario, io.Discard)
+	if err == nil {
+		t.Fatal("Run() error = nil, want a decision mismatch error")
+	}
+	wantErr := `decision 0 = "discharge", expected "charge"`
+	if !strings.Contains(err.Error(), wantErr) {
+		t.Errorf("Run() error = %q, want it to contain %q", err.Error(), wantErr)
+	}
+}
+
+// The fixture's telemetry is well-formed, so it is accepted and "rejected" cannot match.
+func TestRunReturnsErrorOnDispositionMismatch(t *testing.T) {
+	input := strings.Replace(
+		validScenarioJSON,
+		`"expected": {"decisions": ["discharge"]}`,
+		`"expected": {"decisions": ["discharge"], "dispositions": ["rejected"]}`,
+		1,
+	)
+	scenario, err := ParseScenario(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("ParseScenario() error = %v", err)
+	}
+
+	err = Run(context.Background(), scenario, io.Discard)
+	if err == nil {
+		t.Fatal("Run() error = nil, want a disposition mismatch error")
+	}
+	wantErr := `disposition 0 = "accepted", expected "rejected"`
+	if !strings.Contains(err.Error(), wantErr) {
+		t.Errorf("Run() error = %q, want it to contain %q", err.Error(), wantErr)
+	}
+}
+
+// The fixture's device reports fresh telemetry, so it is online and "offline" cannot match.
+func TestRunReturnsErrorOnHealthStatusMismatch(t *testing.T) {
+	input := strings.Replace(
+		validScenarioJSON,
+		`"expected": {"decisions": ["discharge"]}`,
+		`"expected": {"decisions": ["discharge"], "health_statuses": ["offline"]}`,
+		1,
+	)
+	scenario, err := ParseScenario(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("ParseScenario() error = %v", err)
+	}
+
+	err = Run(context.Background(), scenario, io.Discard)
+	if err == nil {
+		t.Fatal("Run() error = nil, want a health status mismatch error")
+	}
+	wantErr := `health status 0 = "online", expected "offline"`
+	if !strings.Contains(err.Error(), wantErr) {
+		t.Errorf("Run() error = %q, want it to contain %q", err.Error(), wantErr)
 	}
 }
