@@ -182,10 +182,7 @@ func TestRunIsDeterministicAndMatchesExpectedResult(t *testing.T) {
 	}
 }
 
-// A single-interval scenario whose expected decision cannot match what the policy actually
-// produces: the fixture always discharges, so claiming "charge" was expected forces Run into
-// its mismatch path. Without this test, deleting the decision comparison loop in run.go would
-// still report "expected_result": "matched" and no test would notice.
+// The fixture always discharges, so "charge" is a guaranteed mismatch.
 func TestRunReturnsErrorOnDecisionMismatch(t *testing.T) {
 	input := strings.Replace(validScenarioJSON, `"discharge"`, `"charge"`, 1)
 	scenario, err := ParseScenario(strings.NewReader(input))
@@ -203,10 +200,7 @@ func TestRunReturnsErrorOnDecisionMismatch(t *testing.T) {
 	}
 }
 
-// Same fixture, but the mismatch is in the optional expected.dispositions sequence: the
-// telemetry is well-formed and gets accepted, so declaring "rejected" as expected forces the
-// disposition comparison loop to fail. That loop's `if len(...) == 0 { break }` guard is easy
-// to break silently, so a matching-only test suite would miss a regression here.
+// The fixture's telemetry is well-formed, so it is accepted and "rejected" cannot match.
 func TestRunReturnsErrorOnDispositionMismatch(t *testing.T) {
 	input := strings.Replace(
 		validScenarioJSON,
@@ -229,10 +223,7 @@ func TestRunReturnsErrorOnDispositionMismatch(t *testing.T) {
 	}
 }
 
-// Same fixture again, this time mismatching the optional expected.health_statuses sequence:
-// the simulated device reports fresh telemetry, so it is healthy, and declaring "offline" as
-// expected forces the health status comparison loop to fail for the same reason the
-// disposition test above does.
+// The fixture's device reports fresh telemetry, so it is online and "offline" cannot match.
 func TestRunReturnsErrorOnHealthStatusMismatch(t *testing.T) {
 	input := strings.Replace(
 		validScenarioJSON,
