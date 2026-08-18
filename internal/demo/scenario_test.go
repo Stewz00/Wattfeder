@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -178,5 +179,78 @@ func TestRunIsDeterministicAndMatchesExpectedResult(t *testing.T) {
 			telemetryEventID,
 			decisionEventID,
 		)
+	}
+}
+
+// A single-interval scenario whose expected decision cannot match what the policy actually
+// produces: the fixture always discharges, so claiming "charge" was expected forces Run into
+// its mismatch path. Without this test, deleting the decision comparison loop in run.go would
+// still report "expected_result": "matched" and no test would notice.
+func TestRunReturnsErrorOnDecisionMismatch(t *testing.T) {
+	input := strings.Replace(validScenarioJSON, `"discharge"`, `"charge"`, 1)
+	scenario, err := ParseScenario(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("ParseScenario() error = %v", err)
+	}
+
+	err = Run(context.Background(), scenario, io.Discard)
+	if err == nil {
+		t.Fatal("Run() error = nil, want a decision mismatch error")
+	}
+	wantErr := `decision 0 = "discharge", expected "charge"`
+	if !strings.Contains(err.Error(), wantErr) {
+		t.Errorf("Run() error = %q, want it to contain %q", err.Error(), wantErr)
+	}
+}
+
+// Same fixture, but the mismatch is in the optional expected.dispositions sequence: the
+// telemetry is well-formed and gets accepted, so declaring "rejected" as expected forces the
+// disposition comparison loop to fail. That loop's `if len(...) == 0 { break }` guard is easy
+// to break silently, so a matching-only test suite would miss a regression here.
+func TestRunReturnsErrorOnDispositionMismatch(t *testing.T) {
+	input := strings.Replace(
+		validScenarioJSON,
+		`"expected": {"decisions": ["discharge"]}`,
+		`"expected": {"decisions": ["discharge"], "dispositions": ["rejected"]}`,
+		1,
+	)
+	scenario, err := ParseScenario(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("ParseScenario() error = %v", err)
+	}
+
+	err = Run(context.Background(), scenario, io.Discard)
+	if err == nil {
+		t.Fatal("Run() error = nil, want a disposition mismatch error")
+	}
+	wantErr := `disposition 0 = "accepted", expected "rejected"`
+	if !strings.Contains(err.Error(), wantErr) {
+		t.Errorf("Run() error = %q, want it to contain %q", err.Error(), wantErr)
+	}
+}
+
+// Same fixture again, this time mismatching the optional expected.health_statuses sequence:
+// the simulated device reports fresh telemetry, so it is healthy, and declaring "offline" as
+// expected forces the health status comparison loop to fail for the same reason the
+// disposition test above does.
+func TestRunReturnsErrorOnHealthStatusMismatch(t *testing.T) {
+	input := strings.Replace(
+		validScenarioJSON,
+		`"expected": {"decisions": ["discharge"]}`,
+		`"expected": {"decisions": ["discharge"], "health_statuses": ["offline"]}`,
+		1,
+	)
+	scenario, err := ParseScenario(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("ParseScenario() error = %v", err)
+	}
+
+	err = Run(context.Background(), scenario, io.Discard)
+	if err == nil {
+		t.Fatal("Run() error = nil, want a health status mismatch error")
+	}
+	wantErr := `health status 0 = "online", expected "offline"`
+	if !strings.Contains(err.Error(), wantErr) {
+		t.Errorf("Run() error = %q, want it to contain %q", err.Error(), wantErr)
 	}
 }
