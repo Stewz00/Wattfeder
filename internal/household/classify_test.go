@@ -215,44 +215,6 @@ func TestClassifyHistoryOnlyPreservesUnresolvedInvalidHealth(t *testing.T) {
 	}
 }
 
-func TestClassifyDuplicateIsCompleteNoOp(t *testing.T) {
-	receivedAt := classifyStart.Add(time.Minute)
-	raw := classifyRaw(classifyStart.Add(classifyInterval))
-	envelope := &ObservationEnvelope{
-		SourceDeviceID: "home-001",
-		ReceivedAt:     receivedAt,
-		Telemetry:      &raw,
-		Available:      true,
-	}
-	priorHealth := classifyPriorHealth()
-
-	result := Classify(ClassifyInput{
-		Envelope:    envelope,
-		PriorState:  classifyPriorState(),
-		PriorHealth: priorHealth,
-		IsDuplicate: true,
-		Policy:      classifyPolicy(t),
-		Interval:    classifyInterval,
-		Now:         receivedAt,
-	})
-
-	if result.Disposition != DispositionDuplicate {
-		t.Errorf("Disposition = %v, want %v", result.Disposition, DispositionDuplicate)
-	}
-	if result.Telemetry != nil {
-		t.Errorf("Telemetry = %+v, want nil", result.Telemetry)
-	}
-	if result.State != nil {
-		t.Errorf("State = %+v, want nil", result.State)
-	}
-	if !result.SuppressCommand {
-		t.Error("SuppressCommand = false, want true")
-	}
-	if result.Health != priorHealth {
-		t.Errorf("Health = %+v, want unchanged %+v", result.Health, priorHealth)
-	}
-}
-
 func TestClassifyRejectsAndMarksHealthInvalid(t *testing.T) {
 	receivedAt := classifyStart.Add(classifyInterval)
 	tests := []struct {

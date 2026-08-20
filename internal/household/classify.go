@@ -7,13 +7,10 @@ import (
 
 // ClassifyInput is everything the domain needs to classify one interval's observation.
 // Envelope is nil when no observation arrived for the interval at all (a missing heartbeat).
-// IsDuplicate reports whether the envelope's event ID has already been processed; it is
-// determined by the caller, since only durable storage knows prior event IDs.
 type ClassifyInput struct {
 	Envelope    *ObservationEnvelope
 	PriorState  State
 	PriorHealth DeviceHealth
-	IsDuplicate bool
 	Policy      HealthPolicy
 	Interval    time.Duration
 	Now         time.Time
@@ -42,14 +39,10 @@ func Classify(in ClassifyInput) ClassifyResult {
 		return rejected(in, err.Error())
 	}
 
-	switch {
-	case !in.Envelope.Available:
+	if !in.Envelope.Available {
 		return classifyUnavailable(in)
-	case in.IsDuplicate:
-		return classifyDuplicate(in)
-	default:
-		return classifyTelemetry(in)
 	}
+	return classifyTelemetry(in)
 }
 
 func classifyTelemetry(in ClassifyInput) ClassifyResult {
@@ -123,14 +116,6 @@ func rejected(in ClassifyInput, reason string) ClassifyResult {
 		Reason:          reason,
 		SuppressCommand: true,
 		Health:          transitionHealth(in.PriorHealth, HealthInvalid, reason, receivedAt, receivedAt),
-	}
-}
-
-func classifyDuplicate(in ClassifyInput) ClassifyResult {
-	return ClassifyResult{
-		Disposition:     DispositionDuplicate,
-		SuppressCommand: true,
-		Health:          in.PriorHealth,
 	}
 }
 
