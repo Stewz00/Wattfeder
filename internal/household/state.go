@@ -1,3 +1,5 @@
+// Package household holds the core domain model for one household's telemetry and control:
+// observations, classification, device health, and the commands dispatched in response.
 package household
 
 import (

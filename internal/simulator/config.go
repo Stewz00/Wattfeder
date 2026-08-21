@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+// Config parameterizes one deterministic simulated household run: its random seed, timeline,
+// device identity, physical asset sizing, and injected delivery faults.
 type Config struct {
 	Seed                      int64
 	Start                     time.Time
@@ -25,6 +27,7 @@ type Config struct {
 // SimulationDuration is the fixed length of one simulated household run.
 const SimulationDuration = 24 * time.Hour
 
+// Validate reports whether the config's parameters are well-formed for building a Simulator.
 func (c Config) Validate() error {
 	if c.Start.IsZero() {
 		return errors.New("start must not be zero")

@@ -17,23 +17,34 @@ var sampleRawTelemetryEventTime = time.Date(2000, time.January, 1, 0, 0, 0, 0, t
 type FaultKind string
 
 const (
-	FaultDuplicate          FaultKind = "duplicate"
-	FaultOutOfOrder         FaultKind = "out_of_order"
-	FaultDelay              FaultKind = "delay"
-	FaultMissingValue       FaultKind = "missing_value"
+	// FaultDuplicate means the prior interval's observation is redelivered verbatim.
+	FaultDuplicate FaultKind = "duplicate"
+	// FaultOutOfOrder means an observation is delivered with an event time and ID from an earlier interval.
+	FaultOutOfOrder FaultKind = "out_of_order"
+	// FaultDelay means the observation's event time is unchanged but it arrives after a positive delay.
+	FaultDelay FaultKind = "delay"
+	// FaultMissingValue means one named measurement is omitted from an otherwise available observation.
+	FaultMissingValue FaultKind = "missing_value"
+	// FaultInvalidMeasurement means one named measurement carries a value that fails domain validation.
 	FaultInvalidMeasurement FaultKind = "invalid_measurement"
-	FaultMissingHeartbeat   FaultKind = "missing_heartbeat"
-	FaultUnavailable        FaultKind = "unavailable"
+	// FaultMissingHeartbeat means no observation arrives at all for the interval.
+	FaultMissingHeartbeat FaultKind = "missing_heartbeat"
+	// FaultUnavailable means the source explicitly reports unavailability, with no telemetry.
+	FaultUnavailable FaultKind = "unavailable"
 )
 
 // Measurement names one telemetry field a fault can target.
 type Measurement string
 
 const (
-	MeasurementPVPower    Measurement = "pv_power_kw"
-	MeasurementLoadPower  Measurement = "load_power_kw"
+	// MeasurementPVPower names the PV generation power field, in kW.
+	MeasurementPVPower Measurement = "pv_power_kw"
+	// MeasurementLoadPower names the household load power field, in kW.
+	MeasurementLoadPower Measurement = "load_power_kw"
+	// MeasurementBatterySOC names the battery state-of-charge field, in percent.
 	MeasurementBatterySOC Measurement = "battery_soc_percent"
-	MeasurementPrice      Measurement = "price_eur_per_kwh"
+	// MeasurementPrice names the electricity price field, in EUR per kWh.
+	MeasurementPrice Measurement = "price_eur_per_kwh"
 )
 
 func (m Measurement) valid() bool {

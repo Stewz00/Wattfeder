@@ -1,3 +1,6 @@
+// Package simulator generates deterministic synthetic household telemetry and control runs,
+// optionally injecting configured delivery faults, for exercising the rest of Wattfeder without
+// real hardware.
 package simulator
 
 import (
@@ -77,6 +80,7 @@ type Simulator struct {
 	priorPrice     float64
 }
 
+// New validates cfg and builds a Simulator ready to produce the first simulated interval.
 func New(cfg Config) (*Simulator, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid simulator config: %w", err)
