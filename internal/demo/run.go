@@ -192,26 +192,14 @@ func Run(ctx context.Context, scenario Scenario, output io.Writer) error {
 		return fmt.Errorf("run demo simulation: %w", err)
 	}
 
-	for i, decision := range decisions {
-		if decision != scenario.ExpectedDecisions[i] {
-			return fmt.Errorf("decision %d = %q, expected %q", i, decision, scenario.ExpectedDecisions[i])
-		}
+	if err := compareExpected("decision", decisions, scenario.ExpectedDecisions); err != nil {
+		return err
 	}
-	for i, disposition := range dispositions {
-		if len(scenario.ExpectedDispositions) == 0 {
-			break
-		}
-		if disposition != scenario.ExpectedDispositions[i] {
-			return fmt.Errorf("disposition %d = %q, expected %q", i, disposition, scenario.ExpectedDispositions[i])
-		}
+	if err := compareExpected("disposition", dispositions, scenario.ExpectedDispositions); err != nil {
+		return err
 	}
-	for i, status := range healthStatuses {
-		if len(scenario.ExpectedHealthStatuses) == 0 {
-			break
-		}
-		if status != scenario.ExpectedHealthStatuses[i] {
-			return fmt.Errorf("health status %d = %q, expected %q", i, status, scenario.ExpectedHealthStatuses[i])
-		}
+	if err := compareExpected("health status", healthStatuses, scenario.ExpectedHealthStatuses); err != nil {
+		return err
 	}
 
 	if err := encoder.Encode(simulationCompletedLog{
@@ -226,5 +214,19 @@ func Run(ctx context.Context, scenario Scenario, output io.Writer) error {
 		return fmt.Errorf("write completion log: %w", err)
 	}
 
+	return nil
+}
+
+// compareExpected checks produced against expected element by element, skipping the check
+// entirely when expected is empty.
+func compareExpected[T ~string](label string, produced, expected []T) error {
+	if len(expected) == 0 {
+		return nil
+	}
+	for i, got := range produced {
+		if got != expected[i] {
+			return fmt.Errorf("%s %d = %q, expected %q", label, i, got, expected[i])
+		}
+	}
 	return nil
 }
