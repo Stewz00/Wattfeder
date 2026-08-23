@@ -1,7 +1,7 @@
 // Package observability adapts the application runtime's Observer seam to concrete
-// infrastructure — structured logs today, metrics and tracing as later tasks add them. Nothing
-// in internal/application or internal/household imports this package; it depends on them, never
-// the other way around.
+// infrastructure — structured logs, Prometheus metrics, OpenTelemetry tracing, and
+// readiness/health HTTP endpoints. Nothing in internal/application or internal/household imports
+// this package; it depends on them, never the other way around.
 package observability
 
 import (
