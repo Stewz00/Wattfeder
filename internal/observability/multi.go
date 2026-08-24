@@ -18,6 +18,8 @@ func NewMultiObserver(observers ...application.Observer) *MultiObserver {
 	return &MultiObserver{observers: observers}
 }
 
+// BeginInterval opens every wrapped observer's scope in order; the returned EndInterval closes
+// them in reverse order of opening.
 func (m *MultiObserver) BeginInterval(ctx context.Context) (context.Context, application.EndInterval) {
 	ends := make([]application.EndInterval, len(m.observers))
 	for i, observer := range m.observers {
