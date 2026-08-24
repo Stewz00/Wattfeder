@@ -48,6 +48,8 @@ func NewTracer(provider trace.TracerProvider) *Tracer {
 	return &Tracer{tracer: provider.Tracer(tracerName)}
 }
 
+// BeginInterval starts a span for one interval; the returned EndInterval sets its attributes
+// from the resulting Record and ends the span.
 func (t *Tracer) BeginInterval(ctx context.Context) (context.Context, application.EndInterval) {
 	spanCtx, span := t.tracer.Start(ctx, "interval")
 	return spanCtx, func(record application.Record, err error) {
