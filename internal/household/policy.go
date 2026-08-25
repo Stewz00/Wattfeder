@@ -7,6 +7,7 @@ import (
 )
 
 const (
+	maximumSOCPercent          = 100.0
 	minimumDischargeSOCPercent = 20.0
 	dischargePriceEURPerKWh    = 0.30
 )
@@ -39,7 +40,7 @@ func (p Policy) Decide(state State) Command {
 	netPowerKW := state.PVPowerKW - state.LoadPowerKW
 
 	if netPowerKW > 0 {
-		if state.BatterySOCPercent >= 100 {
+		if state.BatterySOCPercent >= maximumSOCPercent {
 			return Command{
 				Decision: DecisionIdle,
 				Reason:   "Battery is fully charged",
@@ -104,6 +105,6 @@ func (p Policy) Decide(state State) Command {
 
 func (p Policy) maximumDischargePowerKW(socPercent float64) float64 {
 	// Convert the percentage above reserve to energy, then spread that energy across the interval as power
-	energyAboveReserveKWh := (socPercent - minimumDischargeSOCPercent) / 100 * p.batteryCapacityKWh
+	energyAboveReserveKWh := (socPercent - minimumDischargeSOCPercent) / maximumSOCPercent * p.batteryCapacityKWh
 	return energyAboveReserveKWh / p.interval.Hours()
 }

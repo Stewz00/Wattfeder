@@ -48,7 +48,7 @@ func (t Telemetry) Validate() error {
 		return errors.New("load power must be finite and non-negative")
 	}
 
-	if !isFinite(t.BatterySOCPercent) || t.BatterySOCPercent < 0 || t.BatterySOCPercent > 100 {
+	if !isFinite(t.BatterySOCPercent) || t.BatterySOCPercent < 0 || t.BatterySOCPercent > maximumSOCPercent {
 		return errors.New("battery SOC must be finite and between 0 and 100")
 	}
 
