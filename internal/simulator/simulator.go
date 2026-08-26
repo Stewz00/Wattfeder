@@ -108,13 +108,11 @@ func (s *Simulator) IntervalsPerDay() int {
 }
 
 // NextObservation produces the envelope for the current simulated interval, applying any
-// fault configured for this step, along with that interval's nominal simulated time. A nil
-// envelope with a nil error means no observation arrived for the interval at all (a missing
-// heartbeat); the nominal time is still returned so a caller can classify the missing
-// interval deterministically.
-func (s *Simulator) NextObservation() (*household.ObservationEnvelope, time.Time, error) {
+// fault configured for this step. A nil envelope with a nil error means no observation
+// arrived for the interval at all (a missing heartbeat).
+func (s *Simulator) NextObservation() (*household.ObservationEnvelope, error) {
 	if s.pendingTelemetry {
-		return nil, time.Time{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"control command is required for telemetry at %s",
 			s.currentTime.Format(time.RFC3339),
 		)
@@ -138,32 +136,32 @@ func (s *Simulator) NextObservation() (*household.ObservationEnvelope, time.Time
 
 	fault, hasFault := s.cfg.Faults.at(s.step)
 	if !hasFault {
-		return fullEnvelope(s.cfg.DeviceID, eventID, eventTime, eventTime, pv, load, soc, price), eventTime, nil
+		return fullEnvelope(s.cfg.DeviceID, eventID, eventTime, eventTime, pv, load, soc, price), nil
 	}
 
 	switch fault.Kind {
 	case FaultMissingHeartbeat:
-		return nil, eventTime, nil
+		return nil, nil
 	case FaultUnavailable:
-		return &household.ObservationEnvelope{SourceDeviceID: s.cfg.DeviceID, ReceivedAt: eventTime}, eventTime, nil
+		return &household.ObservationEnvelope{SourceDeviceID: s.cfg.DeviceID, ReceivedAt: eventTime}, nil
 	case FaultDuplicate:
 		return fullEnvelope(
 			s.cfg.DeviceID, s.priorEventID, s.priorEventTime, eventTime, s.priorPV, s.priorLoad, s.priorSOC, s.priorPrice,
-		), eventTime, nil
+		), nil
 	case FaultOutOfOrder:
 		outOfOrderTime := eventTime.Add(fault.EventTimeOffset)
 		return fullEnvelope(
 			s.cfg.DeviceID, household.EventID(fault.EventID), outOfOrderTime, eventTime, pv, load, soc, price,
-		), eventTime, nil
+		), nil
 	case FaultDelay:
-		return fullEnvelope(s.cfg.DeviceID, eventID, eventTime, eventTime.Add(fault.Delay), pv, load, soc, price), eventTime, nil
+		return fullEnvelope(s.cfg.DeviceID, eventID, eventTime, eventTime.Add(fault.Delay), pv, load, soc, price), nil
 	case FaultMissingValue:
 		return &household.ObservationEnvelope{
 			SourceDeviceID: s.cfg.DeviceID,
 			ReceivedAt:     eventTime,
 			Telemetry:      rawTelemetryWithFault(eventID, eventTime, s.cfg.DeviceID, pv, load, soc, price, fault.Measurement, nil),
 			Available:      true,
-		}, eventTime, nil
+		}, nil
 	case FaultInvalidMeasurement:
 		value := fault.Value
 		return &household.ObservationEnvelope{
@@ -173,9 +171,9 @@ func (s *Simulator) NextObservation() (*household.ObservationEnvelope, time.Time
 				eventID, eventTime, s.cfg.DeviceID, pv, load, soc, price, fault.Measurement, &value,
 			),
 			Available: true,
-		}, eventTime, nil
+		}, nil
 	default:
-		return nil, eventTime, fmt.Errorf("unknown fault kind %q", fault.Kind)
+		return nil, fmt.Errorf("unknown fault kind %q", fault.Kind)
 	}
 }
 

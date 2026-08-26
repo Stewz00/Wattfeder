@@ -12,7 +12,7 @@ func TestSimulatorNextObservationAppliesMissingHeartbeat(t *testing.T) {
 	sim := newFaultedSimulator(t, Fault{Step: 2, Kind: FaultMissingHeartbeat})
 	completeStep(t, sim) // step 1: normal
 
-	envelope, _, err := sim.NextObservation()
+	envelope, err := sim.NextObservation()
 	if err != nil {
 		t.Fatalf("NextObservation() error = %v", err)
 	}
@@ -37,7 +37,7 @@ func TestSimulatorNextObservationAppliesUnavailable(t *testing.T) {
 	sim := newFaultedSimulator(t, Fault{Step: 2, Kind: FaultUnavailable})
 	completeStep(t, sim)
 
-	envelope, _, err := sim.NextObservation()
+	envelope, err := sim.NextObservation()
 	if err != nil {
 		t.Fatalf("NextObservation() error = %v", err)
 	}
@@ -59,7 +59,7 @@ func TestSimulatorNextObservationAppliesDuplicate(t *testing.T) {
 	sim := newFaultedSimulator(t, Fault{Step: 2, Kind: FaultDuplicate})
 	first := completeStep(t, sim)
 
-	envelope, _, err := sim.NextObservation()
+	envelope, err := sim.NextObservation()
 	if err != nil {
 		t.Fatalf("NextObservation() error = %v", err)
 	}
@@ -88,7 +88,7 @@ func TestSimulatorNextObservationAppliesOutOfOrder(t *testing.T) {
 	completeStep(t, sim)
 	nominalEventTime := sim.currentTime
 
-	envelope, _, err := sim.NextObservation()
+	envelope, err := sim.NextObservation()
 	if err != nil {
 		t.Fatalf("NextObservation() error = %v", err)
 	}
@@ -113,7 +113,7 @@ func TestSimulatorNextObservationAppliesDelay(t *testing.T) {
 	completeStep(t, sim)
 	nominalEventTime := sim.currentTime
 
-	envelope, _, err := sim.NextObservation()
+	envelope, err := sim.NextObservation()
 	if err != nil {
 		t.Fatalf("NextObservation() error = %v", err)
 	}
@@ -133,7 +133,7 @@ func TestSimulatorNextObservationAppliesMissingValue(t *testing.T) {
 	sim := newFaultedSimulator(t, Fault{Step: 2, Kind: FaultMissingValue, Measurement: MeasurementPVPower})
 	completeStep(t, sim)
 
-	envelope, _, err := sim.NextObservation()
+	envelope, err := sim.NextObservation()
 	if err != nil {
 		t.Fatalf("NextObservation() error = %v", err)
 	}
@@ -158,7 +158,7 @@ func TestSimulatorNextObservationAppliesInvalidMeasurement(t *testing.T) {
 	})
 	completeStep(t, sim)
 
-	envelope, _, err := sim.NextObservation()
+	envelope, err := sim.NextObservation()
 	if err != nil {
 		t.Fatalf("NextObservation() error = %v", err)
 	}
@@ -178,7 +178,7 @@ func TestSimulatorNextObservationRepeatsFaultAcrossConsecutiveSteps(t *testing.T
 	completeStep(t, sim) // step 1: normal
 
 	for step := 2; step <= 3; step++ {
-		envelope, _, err := sim.NextObservation()
+		envelope, err := sim.NextObservation()
 		if err != nil {
 			t.Fatalf("step %d: NextObservation() error = %v", step, err)
 		}
@@ -191,7 +191,7 @@ func TestSimulatorNextObservationRepeatsFaultAcrossConsecutiveSteps(t *testing.T
 	}
 
 	// step 4 must be back to normal delivery
-	envelope, _, err := sim.NextObservation()
+	envelope, err := sim.NextObservation()
 	if err != nil {
 		t.Fatalf("step 4: NextObservation() error = %v", err)
 	}
@@ -214,7 +214,7 @@ func TestSimulatorContinuesAdvancingAcrossEveryFaultKind(t *testing.T) {
 	start := sim.currentTime
 
 	for step := 1; step <= len(kinds)+1; step++ {
-		if _, _, err := sim.NextObservation(); err != nil {
+		if _, err := sim.NextObservation(); err != nil {
 			t.Fatalf("step %d: NextObservation() error = %v", step, err)
 		}
 		if err := sim.Complete(nil); err != nil {
@@ -232,7 +232,7 @@ func TestSimulatorCompleteWithNilCommandHoldsBatteryIdle(t *testing.T) {
 	sim := newFaultedSimulator(t, Fault{Step: 1, Kind: FaultUnavailable})
 	socBefore := sim.batterySOCPercent
 
-	if _, _, err := sim.NextObservation(); err != nil {
+	if _, err := sim.NextObservation(); err != nil {
 		t.Fatalf("NextObservation() error = %v", err)
 	}
 	if err := sim.Complete(nil); err != nil {
