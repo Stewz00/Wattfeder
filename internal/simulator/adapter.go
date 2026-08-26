@@ -13,8 +13,7 @@ import (
 // Simulator satisfy application.TelemetrySource without importing that package, since Go
 // interfaces are structural.
 func (s *Simulator) Next(context.Context) (*household.ObservationEnvelope, error) {
-	envelope, _, err := s.NextObservation()
-	return envelope, err
+	return s.NextObservation()
 }
 
 // Apply applies one battery command to the simulated household and advances the simulated
