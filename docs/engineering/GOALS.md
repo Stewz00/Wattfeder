@@ -11,8 +11,8 @@ problem.
 
 Build a small but complete edge-to-cloud system in which a Go edge agent processes
 household energy telemetry locally, continues operating during connectivity
-failures, and reliably delivers events to an ASP.NET Core ingestion service backed
-by PostgreSQL.
+failures, and reliably delivers events to a Go ingestion service backed by
+PostgreSQL.
 
 The finished system should be understandable, reproducible, testable and operable
 by another engineer.
@@ -23,7 +23,7 @@ by another engineer.
 
 - The simulator produces deterministic device behavior.
 - The Go edge agent owns local processing, state and offline delivery.
-- The ASP.NET Core service owns cloud ingestion and centralized persistence.
+- The Go ingestion service owns cloud ingestion and centralized persistence.
 - SQLite and PostgreSQL have separate, explicit responsibilities.
 - Domain code does not depend directly on transport, database or cloud services.
 
@@ -48,7 +48,9 @@ by another engineer.
 
 - Containerized services.
 - Reproducible local environment with Docker Compose.
-- Reproducible Azure infrastructure with Pulumi.
+- Reproducible cloud infrastructure with Terraform.
+- The cloud provider is selected before v0.9 using production relevance and the
+  measured Wattfeder workload rather than being coupled to the domain model.
 - Health and readiness checks with different semantics.
 - Structured logs, metrics and distributed tracing.
 - Configuration and secrets remain outside application images and source control.
@@ -59,7 +61,7 @@ Important behavior should be demonstrated through:
 
 - unit tests for domain rules;
 - integration tests against real SQLite and PostgreSQL;
-- contract tests between the Go client and .NET API;
+- contract tests between the edge client and ingestion API;
 - end-to-end failure scenarios;
 - reproducible load tests;
 - documented measurements instead of unsupported performance claims.
@@ -70,18 +72,17 @@ Technologies are included only where they solve a visible problem.
 
 | Technology | Reason |
 |---|---|
-| Go | Long-running edge runtime, concurrency, device adapters and local reliability |
+| Go | Long-running edge runtime, cloud ingestion, concurrency and local reliability |
 | SQLite | Durable local state and offline outbox on the edge |
-| ASP.NET Core | Cloud ingestion boundary and demonstration of production .NET experience |
 | PostgreSQL | Central telemetry history, idempotency and latest-state projections |
 | HTTP/OpenAPI | Small, explicit and testable edge-to-cloud contract |
 | OpenTelemetry | Trace one event across edge processing and cloud ingestion |
 | Docker Compose | Reproduce the complete system locally |
-| Azure Container Apps | Operate the ingestion service without unnecessary Kubernetes complexity |
-| Pulumi | Reviewable and reproducible cloud infrastructure |
+| Terraform | Reviewable and reproducible cloud infrastructure with broad production relevance |
 
-The project should not add Kafka, Kubernetes, Cosmos DB, Service Bus or additional
-microservices unless a measured requirement makes them necessary.
+The cloud provider remains deliberately undecided until deployment work starts in
+v0.9. The project should not add Kafka, Kubernetes, a managed message broker or
+additional microservices unless a measured requirement makes them necessary.
 
 ## Demonstration Scenarios
 
@@ -217,7 +218,6 @@ not a permanent claim that one technology is always superior.
 
 Wattfeder may include postmortems for failures discovered during implementation,
 testing or controlled incident exercises.
-
 Do not invent production incidents. Clearly label simulated failures as incident
 exercises.
 
