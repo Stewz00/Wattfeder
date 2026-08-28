@@ -140,11 +140,10 @@ const (
 )
 
 // DeviceSnapshot is the complete restorable state for one device: its latest valid
-// measurements, when they were received, and its durable health.
+// measurements and its durable health.
 type DeviceSnapshot struct {
-	State      household.State
-	ReceivedAt time.Time
-	Health     household.DeviceHealth
+	State  household.State
+	Health household.DeviceHealth
 }
 
 // Repository owns schema migrations and durable household processing records.
@@ -152,8 +151,8 @@ type Repository interface {
 	// Migrate applies pending schema migrations in order and is safe to call on an up-to-date database.
 	Migrate(ctx context.Context) error
 
-	// Snapshot returns the most recently committed device snapshot: latest state, its receive
-	// time, and durable health.
+	// Snapshot returns the most recently committed device snapshot: latest state and
+	// durable health.
 	Snapshot(ctx context.Context, deviceID string) (snapshot DeviceSnapshot, found bool, err error)
 
 	// CommitProcessing stores one interval's observation result in one transaction.

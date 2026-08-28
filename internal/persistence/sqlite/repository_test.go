@@ -482,9 +482,6 @@ func TestRepositorySnapshotRestoresCompleteDeviceSnapshot(t *testing.T) {
 	if snapshot.State != *result.LatestState {
 		t.Errorf("Snapshot() State = %+v, want %+v", snapshot.State, *result.LatestState)
 	}
-	if !snapshot.ReceivedAt.Equal(result.Telemetry.ReceivedAt) {
-		t.Errorf("Snapshot() ReceivedAt = %v, want %v", snapshot.ReceivedAt, result.Telemetry.ReceivedAt)
-	}
 	if snapshot.Health != result.Health {
 		t.Errorf("Snapshot() Health = %+v, want %+v", snapshot.Health, result.Health)
 	}

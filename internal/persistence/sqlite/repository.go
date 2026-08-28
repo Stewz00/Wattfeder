@@ -163,8 +163,8 @@ func appliedMigrations(ctx context.Context, tx *sql.Tx) ([]appliedMigration, err
 	return applied, nil
 }
 
-// Snapshot returns the most recently committed device snapshot: latest state, its receive
-// time, and durable health. found is false only when the device has never been observed.
+// Snapshot returns the most recently committed device snapshot: latest state and durable
+// health. found is false only when the device has never been observed.
 func (r *Repository) Snapshot(ctx context.Context, deviceID string) (persistence.DeviceSnapshot, bool, error) {
 	var (
 		status            string
@@ -178,23 +178,19 @@ func (r *Repository) Snapshot(ctx context.Context, deviceID string) (persistence
 		loadPowerKW       sql.NullFloat64
 		batterySOCPercent sql.NullFloat64
 		priceEURPerKWh    sql.NullFloat64
-		receivedAt        sql.NullString
 	)
 
 	err := r.db.QueryRowContext(ctx, `
 SELECT
     health.status, health.reason, health.transition_time, health.last_contact_at,
     latest.last_event_id, latest.device_id, latest.updated_at, latest.pv_power_kw,
-    latest.load_power_kw, latest.battery_soc_percent, latest.price_eur_per_kwh,
-    telemetry.received_at
+    latest.load_power_kw, latest.battery_soc_percent, latest.price_eur_per_kwh
 FROM device_health AS health
 LEFT JOIN latest_device_states AS latest ON latest.device_id = health.device_id
-LEFT JOIN telemetry_events AS telemetry ON telemetry.event_id = latest.last_event_id
 WHERE health.device_id = ?`, deviceID).Scan(
 		&status, &reason, &transitionTime, &lastContactAt,
 		&lastEventID, &stateDeviceID, &updatedAt, &pvPowerKW,
 		&loadPowerKW, &batterySOCPercent, &priceEURPerKWh,
-		&receivedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return persistence.DeviceSnapshot{}, false, nil
@@ -222,9 +218,6 @@ WHERE health.device_id = ?`, deviceID).Scan(
 		snapshot.State.PriceEURPerKWh = priceEURPerKWh.Float64
 		if snapshot.State.UpdatedAt, err = time.Parse(timestampFormat, updatedAt.String); err != nil {
 			return persistence.DeviceSnapshot{}, false, fmt.Errorf("parse latest state timestamp for device %q: %w", deviceID, err)
-		}
-		if snapshot.ReceivedAt, err = time.Parse(timestampFormat, receivedAt.String); err != nil {
-			return persistence.DeviceSnapshot{}, false, fmt.Errorf("parse latest state received time for device %q: %w", deviceID, err)
 		}
 	}
 
