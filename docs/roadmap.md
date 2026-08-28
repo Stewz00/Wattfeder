@@ -3,8 +3,8 @@
 Wattfeder is a Go project for exploring distributed energy software. Its target
 system is described in [`engineering/GOALS.md`](engineering/GOALS.md): a Go edge
 agent that processes household telemetry locally, keeps working while the cloud
-is unreachable, and delivers events reliably to an ASP.NET Core ingestion
-service backed by PostgreSQL.
+is unreachable, and delivers events reliably to a Go ingestion service backed
+by PostgreSQL.
 
 This roadmap sequences those goals. `GOALS.md` states what the finished system
 must demonstrate; this file states in which order it is built and what counts as
@@ -28,7 +28,7 @@ possible directions rather than fixed commitments.
 | v0.6 — Cloud Ingestion Service | Current |
 | v0.7 — Offline-Capable Edge Delivery | Planned |
 | v0.8 — Fleet Simulation and Ingestion Load | Planned |
-| v0.9 — Azure Deployment with Pulumi | Planned |
+| v0.9 — Cloud Deployment with Terraform | Planned |
 | v1.0 — Portfolio Readiness | Planned |
 
 The application now runs as a long-running edge agent for one household: it
@@ -110,12 +110,13 @@ At the edge:
 
 In the cloud:
 
-* ASP.NET request concurrency, database connections and transaction throughput
-  are the initial capacity boundaries.
+* HTTP request concurrency, database connections and transaction throughput are
+  the initial capacity boundaries.
 * On overload the service returns a retryable response rather than accepting
   work it cannot make durable.
-* No Kafka, Service Bus or internal broker is introduced until measurement shows
-  that synchronous ingestion cannot meet a defined requirement.
+* No Kafka, managed message broker or internal broker is introduced until
+  measurement shows that synchronous ingestion cannot meet a defined
+  requirement.
 
 ---
 
@@ -555,12 +556,12 @@ reprocessed.
 
 ### Goal
 
-Introduce the cloud boundary: an ASP.NET Core service that accepts telemetry
-batches over HTTP and stores them durably in PostgreSQL.
+Introduce the cloud boundary: a Go service that accepts telemetry batches over
+HTTP and stores them durably in PostgreSQL.
 
 ### Scope
 
-* ASP.NET Core ingestion service.
+* Go ingestion service.
 * PostgreSQL schema and migrations.
 * An OpenAPI-described batch ingestion endpoint.
 * Idempotent processing keyed by event ID.
@@ -639,7 +640,7 @@ every accepted event once the cloud returns.
 * Retention and storage-limit behavior for the local database.
 * Outbox depth and delivery metrics.
 * A generated or hand-written client for the ingestion contract.
-* Contract tests between the Go client and the .NET API.
+* Contract tests between the edge client and the Go ingestion API.
 * A Docker Compose environment containing one edge agent, the ingestion service
   and PostgreSQL.
 * OpenTelemetry trace context propagated from edge processing into cloud
@@ -681,7 +682,7 @@ Outbox entry marked delivered
 * An event is marked delivered only after durable cloud persistence.
 * The behavior at the local storage limit is documented and tested, not
   implicitly unbounded.
-* Contract tests fail when the Go client and the .NET API disagree.
+* Contract tests fail when the edge client and ingestion API disagree.
 * The outbox and uploader are reachable from the domain only through interfaces
   the domain defines, and the import check from v0.4 still passes.
 * Removing the uploader leaves local control compiling and working.
@@ -792,21 +793,23 @@ production incident.
 
 ---
 
-## v0.9 — Azure Deployment with Pulumi
+## v0.9 — Cloud Deployment with Terraform
 
 ### Goal
 
-Deploy and operate the ingestion service in Azure using reproducible
-infrastructure code.
+Deploy and operate the ingestion service on a public cloud using reproducible
+Terraform infrastructure. Select the provider immediately before this milestone,
+using production relevance and the measured v0.8 workload as the deciding inputs.
 
 ### Scope
 
-* Pulumi program describing the cloud infrastructure.
-* Azure Container Apps hosting for the ingestion service.
+* Terraform configuration describing the cloud infrastructure.
+* A managed container runtime appropriate for the selected provider and measured
+  workload; do not introduce Kubernetes without a demonstrated requirement.
 * Managed PostgreSQL.
 * Container registry and image publication.
 * Configuration and secrets held outside images and source control.
-* Readiness-driven revision rollout.
+* Readiness-driven rollout behavior supported by the selected runtime.
 * Resource limits based on observed usage.
 * Deployment and teardown documentation.
 
@@ -814,12 +817,11 @@ infrastructure code.
 
 The following are excluded deliberately, not for lack of time:
 
-* Kubernetes and AKS,
-* Kafka or a managed message broker,
-* Cosmos DB,
-* Service Bus,
-* additional microservices,
-* multi-region operation,
+* Kubernetes unless v0.8 or production-learning context justifies it;
+* Kafka or a managed message broker;
+* provider-specific databases without a measured reason to replace PostgreSQL;
+* additional microservices;
+* multi-region operation;
 * automatic horizontal scaling without measured need.
 
 Each exclusion should have a documented condition that would justify revisiting
@@ -835,7 +837,8 @@ it.
 
 ### Exit criteria
 
-* The ingestion service can be deployed and destroyed with documented commands.
+* The ingestion service can be deployed and destroyed with documented Terraform
+  commands.
 * A redeployment does not create duplicate cloud rows.
 * Readiness prevents traffic from reaching an instance without a database.
 * No secret or environment-specific value is stored in an image or in the
@@ -847,8 +850,9 @@ it.
 
 ### Engineering records
 
-Hosting and infrastructure-tool choices are documented in the deployment guide.
-They become a record only if the exclusions above are genuinely challenged.
+Hosting and provider choices are documented in the deployment guide. They become
+an ADR only if there are multiple credible alternatives with meaningful
+trade-offs that affect the system beyond simple service-name mapping.
 
 ---
 
@@ -1017,19 +1021,19 @@ runbook are all implemented and verified.
 
 The next implementation sequence is:
 
-1. Stand up the ASP.NET Core ingestion service and its PostgreSQL schema and
-   migrations.
+1. Stand up the Go ingestion service and its PostgreSQL schema and migrations.
 2. Add an OpenAPI-described batch ingestion endpoint, idempotent by event ID.
 3. Separate telemetry history from the latest-state projection, and report a
    per-event outcome in the batch response.
-4. Add health and readiness endpoints with different semantics, and
-   structured logs and metrics for ingestion, including the fleet-wide
-   online/stale/offline gauges no single agent can report.
+4. Add health and readiness endpoints with different semantics, and structured
+   logs and metrics for ingestion, including the fleet-wide online/stale/offline
+   gauges no single agent can report.
 5. Write integration tests against a real PostgreSQL instance, and reuse the
-   v0.3 disposition rules so an event is judged the same way at the edge and
-   in the cloud.
+   v0.3 disposition rules so an event is judged the same way at the edge and in
+   the cloud.
 
 The offline outbox, distributed tracing across the edge-cloud boundary, the
-fleet load test, and Azure deployment remain outside the current milestone.
-Kubernetes, Kafka, a frontend, and real hardware remain outside the project
-unless a measured requirement makes them necessary.
+fleet load test, and Terraform deployment remain outside the current milestone.
+The cloud provider will be chosen before v0.9. Kubernetes, Kafka, a frontend, and
+real hardware remain outside the project unless a measured requirement makes
+them necessary.
