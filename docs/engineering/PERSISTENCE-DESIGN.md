@@ -101,12 +101,10 @@ records.
 ## Restoring a device snapshot
 
 `Repository.Snapshot` restores everything a caller needs to resume processing
-for a device: its latest state, that state's receive time (derived through
-its telemetry relationship, since latest-state rows do not carry their own
-receive time), and its durable health. A device can have durable health with
-no latest state at all — for example when every observation seen so far was
-rejected, missing, or unavailable — in which case `Snapshot` reports the
-health with a zero-value state.
+for a device: its latest state and its durable health. A device can have
+durable health with no latest state at all — for example when every
+observation seen so far was rejected, missing, or unavailable — in which case
+`Snapshot` reports the health with a zero-value state.
 
 ## Current assumptions and limits
 
