@@ -83,6 +83,80 @@ func TestRepositoryMigrateRejectsUnexpectedHistory(t *testing.T) {
 	}
 }
 
+func TestRepositoryMigrateRejectsNonContiguousHistory(t *testing.T) {
+	repository := openRepository(t, filepath.Join(t.TempDir(), "wattfeder.db"))
+	defer repository.Close()
+
+	if _, err := repository.db.Exec(createMigrationTable); err != nil {
+		t.Fatalf("create migration table: %v", err)
+	}
+	if _, err := repository.db.Exec(
+		"INSERT INTO schema_migrations (version, name, applied_at) VALUES (2, ?, ?)",
+		migrations[1].name,
+		time.Now().UTC().Format(timestampFormat),
+	); err != nil {
+		t.Fatalf("insert non-contiguous migration: %v", err)
+	}
+
+	err := repository.Migrate(t.Context())
+	if err == nil || !strings.Contains(err.Error(), "contiguous") || !strings.Contains(err.Error(), "found version 2") {
+		t.Fatalf("Migrate() error = %v, want non-contiguous version error", err)
+	}
+
+	var tableCount int
+	if err := repository.db.QueryRow(
+		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'telemetry_events'",
+	).Scan(&tableCount); err != nil {
+		t.Fatalf("find telemetry table: %v", err)
+	}
+	if tableCount != 0 {
+		t.Errorf("telemetry table count = %d, want 0 after migration rollback", tableCount)
+	}
+}
+
+func TestRepositoryMigrateRejectsFutureSchemaVersion(t *testing.T) {
+	repository := openRepository(t, filepath.Join(t.TempDir(), "wattfeder.db"))
+	defer repository.Close()
+
+	if _, err := repository.db.Exec(createMigrationTable); err != nil {
+		t.Fatalf("create migration table: %v", err)
+	}
+	for _, m := range migrations {
+		if _, err := repository.db.Exec(
+			"INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
+			m.version,
+			m.name,
+			time.Now().UTC().Format(timestampFormat),
+		); err != nil {
+			t.Fatalf("insert migration %d: %v", m.version, err)
+		}
+	}
+	futureVersion := len(migrations) + 1
+	if _, err := repository.db.Exec(
+		"INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
+		futureVersion,
+		"future migration",
+		time.Now().UTC().Format(timestampFormat),
+	); err != nil {
+		t.Fatalf("insert future migration: %v", err)
+	}
+
+	err := repository.Migrate(t.Context())
+	if err == nil || !strings.Contains(err.Error(), "newer than supported") {
+		t.Fatalf("Migrate() error = %v, want newer-than-supported version error", err)
+	}
+
+	var tableCount int
+	if err := repository.db.QueryRow(
+		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'telemetry_events'",
+	).Scan(&tableCount); err != nil {
+		t.Fatalf("find telemetry table: %v", err)
+	}
+	if tableCount != 0 {
+		t.Errorf("telemetry table count = %d, want 0 after migration rollback", tableCount)
+	}
+}
+
 func TestRepositoryMigrateFromPopulatedV1BackfillsDispositionAndHealth(t *testing.T) {
 	repository := openRepository(t, filepath.Join(t.TempDir(), "wattfeder.db"))
 	defer repository.Close()
