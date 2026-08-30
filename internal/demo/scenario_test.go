@@ -120,11 +120,94 @@ func TestParseScenarioRejectsInvalidConfiguration(t *testing.T) {
 			new:     `"name": "test-day", "extra": true,`,
 			wantErr: "unknown field",
 		},
+		{name: "missing battery capacity_kwh", old: `"capacity_kwh": 10, `, wantErr: "battery.capacity_kwh is required"},
+		{
+			name:    "missing battery starting_soc_percent",
+			old:     `, "starting_soc_percent": 50`,
+			wantErr: "battery.starting_soc_percent is required",
+		},
+		{name: "missing pv peak_power_kw", old: `"peak_power_kw": 6`, wantErr: "pv.peak_power_kw is required"},
+		{name: "missing load base_power_kw", old: `"base_power_kw": 0.4`, wantErr: "load.base_power_kw is required"},
+		{
+			name:    "missing price base_eur_per_kwh",
+			old:     `"base_eur_per_kwh": 0.30`,
+			wantErr: "price.base_eur_per_kwh is required",
+		},
+		{
+			name:    "unparsable start",
+			old:     `"start": "2026-01-01T00:00:00Z",`,
+			new:     `"start": "not-a-time",`,
+			wantErr: "parse start",
+		},
+		{
+			name:    "unparsable duration",
+			old:     `"duration": "24h"`,
+			new:     `"duration": "not-a-duration"`,
+			wantErr: "parse duration",
+		},
+		{
+			name:    "unparsable interval",
+			old:     `"interval": "24h"`,
+			new:     `"interval": "not-a-duration"`,
+			wantErr: "parse interval",
+		},
+		{name: "empty name", old: `"name": "test-day",`, new: `"name": "",`, wantErr: "name must not be empty"},
+		{
+			name:    "invalid expected decision",
+			old:     `"discharge"`,
+			new:     `"invalid-decision"`,
+			wantErr: "has invalid decision",
+		},
+		{
+			name:    "wrong expected dispositions count",
+			old:     `"expected": {"decisions": ["discharge"]}`,
+			new:     `"expected": {"decisions": ["discharge"], "dispositions": ["accepted", "accepted"]}`,
+			wantErr: "expected.dispositions must contain 1 entries",
+		},
+		{
+			name:    "invalid expected disposition",
+			old:     `"expected": {"decisions": ["discharge"]}`,
+			new:     `"expected": {"decisions": ["discharge"], "dispositions": ["bogus"]}`,
+			wantErr: "has invalid disposition",
+		},
+		{
+			name:    "wrong expected health_statuses count",
+			old:     `"expected": {"decisions": ["discharge"]}`,
+			new:     `"expected": {"decisions": ["discharge"], "health_statuses": ["online", "online"]}`,
+			wantErr: "expected.health_statuses must contain 1 entries",
+		},
+		{
+			name:    "invalid expected health status",
+			old:     `"expected": {"decisions": ["discharge"]}`,
+			new:     `"expected": {"decisions": ["discharge"], "health_statuses": ["bogus"]}`,
+			wantErr: "has invalid health status",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input := strings.Replace(validScenarioJSON, tt.old, tt.new, 1)
+			_, err := ParseScenario(strings.NewReader(input))
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("ParseScenario() error = %v, want error containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestParseScenarioRejectsTrailingContent(t *testing.T) {
+	tests := []struct {
+		name    string
+		extra   string
+		wantErr string
+	}{
+		{name: "second JSON value", extra: "\n{}", wantErr: "multiple values are not allowed"},
+		{name: "malformed trailing content", extra: "\nnot-json", wantErr: "decode JSON"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := validScenarioJSON + tt.extra
 			_, err := ParseScenario(strings.NewReader(input))
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("ParseScenario() error = %v, want error containing %q", err, tt.wantErr)
