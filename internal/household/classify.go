@@ -105,11 +105,7 @@ func historyOnly(in ClassifyInput, event Telemetry) ClassifyResult {
 }
 
 func rejected(in ClassifyInput, reason string) ClassifyResult {
-	receivedAt := in.Envelope.ReceivedAt
-	if receivedAt.IsZero() || receivedAt.Location() != time.UTC {
-		// Use the runtime clock because a malformed envelope timestamp cannot become durable health state
-		receivedAt = in.Now
-	}
+	receivedAt := ReceivedAtOrNow(in.Envelope, in.Now)
 
 	return ClassifyResult{
 		Disposition:     DispositionRejected,

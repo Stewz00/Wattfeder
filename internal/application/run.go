@@ -192,10 +192,7 @@ func processInterval(
 		command = &decided
 	}
 
-	receivedAt := now
-	if envelope != nil && !envelope.ReceivedAt.IsZero() && envelope.ReceivedAt.Location() == time.UTC {
-		receivedAt = envelope.ReceivedAt
-	}
+	receivedAt := household.ReceivedAtOrNow(envelope, now)
 
 	observationResult := buildObservationResult(agent.DeviceID, receivedAt, classification, command)
 

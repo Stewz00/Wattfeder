@@ -355,6 +355,34 @@ func TestRunUsesRuntimeTimeForMalformedEnvelopeReceiveTime(t *testing.T) {
 	}
 }
 
+func TestRunUsesRuntimeTimeForNonUTCEnvelopeReceiveTime(t *testing.T) {
+	envelope := freshEnvelope("event-001", testBaseTime, 5, 1, 50, 0.30)
+	envelope.ReceivedAt = envelope.ReceivedAt.In(time.FixedZone("CEST", 2*60*60))
+
+	var records []Record
+	if err := Run(t.Context(), Agent{
+		Clock: NewInstantClock(testBaseTime), Source: &stubSource{envelopes: []*household.ObservationEnvelope{envelope}},
+		Sink: &stubSink{}, Policy: testPolicy(t), Repository: &stubRepository{}, DeviceID: testDeviceID,
+		ShutdownGrace: testShutdownGrace,
+		Write: func(r Record) error {
+			records = append(records, r)
+			return nil
+		},
+	}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if len(records) != 1 {
+		t.Fatalf("record count = %d, want 1", len(records))
+	}
+	if records[0].Disposition != household.DispositionRejected {
+		t.Errorf("Disposition = %v, want %v", records[0].Disposition, household.DispositionRejected)
+	}
+	if records[0].ReceivedAt != testBaseTime {
+		t.Errorf("ReceivedAt = %v, want trusted runtime time %v", records[0].ReceivedAt, testBaseTime)
+	}
+}
+
 func TestRunContinuesAfterEveryIgnoredDisposition(t *testing.T) {
 	source := &stubSource{envelopes: []*household.ObservationEnvelope{
 		envelopeAt("event-001", testBaseTime, testBaseTime, -1, 1, 50, 0.30), // rejected

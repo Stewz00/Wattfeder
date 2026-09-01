@@ -38,3 +38,17 @@ func (e ObservationEnvelope) Validate() error {
 
 	return nil
 }
+
+// ReceivedAtOrNow derives a trustworthy receive time from a possibly-malformed envelope.
+// It uses the envelope's ReceivedAt when the envelope is present and that time is non-zero
+// and UTC; otherwise it falls back to now, because a malformed or absent envelope timestamp
+// cannot become durable health state.
+func ReceivedAtOrNow(envelope *ObservationEnvelope, now time.Time) time.Time {
+	if envelope == nil {
+		return now
+	}
+	if envelope.ReceivedAt.IsZero() || envelope.ReceivedAt.Location() != time.UTC {
+		return now
+	}
+	return envelope.ReceivedAt
+}
