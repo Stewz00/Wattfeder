@@ -48,6 +48,17 @@ const (
 	maximumBatterySOCPercent = 100.0
 )
 
+// intervalSample holds one simulated interval's own natural event identity and measurements,
+// independent of any fault substitution applied to the envelope actually delivered.
+type intervalSample struct {
+	EventID           household.EventID
+	EventTime         time.Time
+	PVPowerKW         float64
+	LoadPowerKW       float64
+	BatterySOCPercent float64
+	PriceEURPerKWh    float64
+}
+
 // Simulator owns the timeline and random stream for one reproducible household run.
 type Simulator struct {
 	cfg               Config
@@ -61,23 +72,12 @@ type Simulator struct {
 	pendingTelemetry  bool
 	step              int
 
-	// pending* describe the interval currently awaiting completion, independent of any fault
-	// substitution applied to the envelope actually returned by NextObservation.
-	pendingEventID   household.EventID
-	pendingEventTime time.Time
-	pendingPV        float64
-	pendingLoad      float64
-	pendingSOC       float64
-	pendingPrice     float64
+	// pending describes the interval currently awaiting completion.
+	pending intervalSample
 
-	// prior* describe the most recently completed interval's own natural values, used to
-	// replay a delivery verbatim for the duplicate fault.
-	priorEventID   household.EventID
-	priorEventTime time.Time
-	priorPV        float64
-	priorLoad      float64
-	priorSOC       float64
-	priorPrice     float64
+	// prior describes the most recently completed interval, used to replay a delivery
+	// verbatim for the duplicate fault.
+	prior intervalSample
 }
 
 // New validates cfg and builds a Simulator ready to produce the first simulated interval.
@@ -131,12 +131,18 @@ func (s *Simulator) NextObservation() (*household.ObservationEnvelope, error) {
 	price := s.priceEURPerKWh(eventTime, s.dailyPriceFactor)
 
 	s.pendingTelemetry = true
-	s.pendingEventID, s.pendingEventTime = eventID, eventTime
-	s.pendingPV, s.pendingLoad, s.pendingSOC, s.pendingPrice = pv, load, soc, price
+	s.pending = intervalSample{
+		EventID:           eventID,
+		EventTime:         eventTime,
+		PVPowerKW:         pv,
+		LoadPowerKW:       load,
+		BatterySOCPercent: soc,
+		PriceEURPerKWh:    price,
+	}
 
 	fault, hasFault := s.cfg.Faults.at(s.step)
 	if !hasFault {
-		return fullEnvelope(s.cfg.DeviceID, eventID, eventTime, eventTime, pv, load, soc, price), nil
+		return fullEnvelope(s.cfg.DeviceID, s.pending, eventTime), nil
 	}
 
 	switch fault.Kind {
@@ -145,21 +151,19 @@ func (s *Simulator) NextObservation() (*household.ObservationEnvelope, error) {
 	case FaultUnavailable:
 		return &household.ObservationEnvelope{SourceDeviceID: s.cfg.DeviceID, ReceivedAt: eventTime}, nil
 	case FaultDuplicate:
-		return fullEnvelope(
-			s.cfg.DeviceID, s.priorEventID, s.priorEventTime, eventTime, s.priorPV, s.priorLoad, s.priorSOC, s.priorPrice,
-		), nil
+		return fullEnvelope(s.cfg.DeviceID, s.prior, eventTime), nil
 	case FaultOutOfOrder:
-		outOfOrderTime := eventTime.Add(fault.EventTimeOffset)
-		return fullEnvelope(
-			s.cfg.DeviceID, household.EventID(fault.EventID), outOfOrderTime, eventTime, pv, load, soc, price,
-		), nil
+		outOfOrderSample := s.pending
+		outOfOrderSample.EventID = household.EventID(fault.EventID)
+		outOfOrderSample.EventTime = eventTime.Add(fault.EventTimeOffset)
+		return fullEnvelope(s.cfg.DeviceID, outOfOrderSample, eventTime), nil
 	case FaultDelay:
-		return fullEnvelope(s.cfg.DeviceID, eventID, eventTime, eventTime.Add(fault.Delay), pv, load, soc, price), nil
+		return fullEnvelope(s.cfg.DeviceID, s.pending, eventTime.Add(fault.Delay)), nil
 	case FaultMissingValue:
 		return &household.ObservationEnvelope{
 			SourceDeviceID: s.cfg.DeviceID,
 			ReceivedAt:     eventTime,
-			Telemetry:      rawTelemetryWithFault(eventID, eventTime, s.cfg.DeviceID, pv, load, soc, price, fault.Measurement, nil),
+			Telemetry:      rawTelemetryWithFault(s.cfg.DeviceID, s.pending, fault.Measurement, nil),
 			Available:      true,
 		}, nil
 	case FaultInvalidMeasurement:
@@ -167,23 +171,19 @@ func (s *Simulator) NextObservation() (*household.ObservationEnvelope, error) {
 		return &household.ObservationEnvelope{
 			SourceDeviceID: s.cfg.DeviceID,
 			ReceivedAt:     eventTime,
-			Telemetry: rawTelemetryWithFault(
-				eventID, eventTime, s.cfg.DeviceID, pv, load, soc, price, fault.Measurement, &value,
-			),
-			Available: true,
+			Telemetry:      rawTelemetryWithFault(s.cfg.DeviceID, s.pending, fault.Measurement, &value),
+			Available:      true,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown fault kind %q", fault.Kind)
 	}
 }
 
-func fullEnvelope(
-	deviceID string, eventID household.EventID, eventTime, receivedAt time.Time, pv, load, soc, price float64,
-) *household.ObservationEnvelope {
+func fullEnvelope(deviceID string, sample intervalSample, receivedAt time.Time) *household.ObservationEnvelope {
 	return &household.ObservationEnvelope{
 		SourceDeviceID: deviceID,
 		ReceivedAt:     receivedAt,
-		Telemetry:      rawTelemetryWithFault(eventID, eventTime, deviceID, pv, load, soc, price, "", nil),
+		Telemetry:      rawTelemetryWithFault(deviceID, sample, "", nil),
 		Available:      true,
 	}
 }
@@ -191,13 +191,9 @@ func fullEnvelope(
 // rawTelemetryWithFault builds a raw telemetry sample, optionally overriding one named
 // measurement with override (nil simulates a missing value).
 func rawTelemetryWithFault(
-	eventID household.EventID,
-	eventTime time.Time,
-	deviceID string,
-	pv, load, soc, price float64,
-	measurement Measurement,
-	override *float64,
+	deviceID string, sample intervalSample, measurement Measurement, override *float64,
 ) *household.RawTelemetry {
+	pv, load, soc, price := sample.PVPowerKW, sample.LoadPowerKW, sample.BatterySOCPercent, sample.PriceEURPerKWh
 	pvPtr, loadPtr, socPtr, pricePtr := &pv, &load, &soc, &price
 	switch measurement {
 	case MeasurementPVPower:
@@ -211,8 +207,8 @@ func rawTelemetryWithFault(
 	}
 
 	return &household.RawTelemetry{
-		EventID:           eventID,
-		EventTime:         eventTime,
+		EventID:           sample.EventID,
+		EventTime:         sample.EventTime,
 		DeviceID:          deviceID,
 		PVPowerKW:         pvPtr,
 		LoadPowerKW:       loadPtr,
@@ -249,8 +245,7 @@ func (s *Simulator) Complete(command *household.Command) error {
 		s.cfg.Interval,
 		s.cfg.BatteryCapacityKWh,
 	)
-	s.priorEventID, s.priorEventTime = s.pendingEventID, s.pendingEventTime
-	s.priorPV, s.priorLoad, s.priorSOC, s.priorPrice = s.pendingPV, s.pendingLoad, s.pendingSOC, s.pendingPrice
+	s.prior = s.pending
 	s.currentTime = s.currentTime.Add(s.cfg.Interval)
 	s.pendingTelemetry = false
 
