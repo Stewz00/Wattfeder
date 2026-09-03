@@ -17,9 +17,21 @@ func TestFaultValidateAccepts(t *testing.T) {
 		}},
 		{name: "delay", fault: Fault{Step: 4, Kind: FaultDelay, Delay: 45 * time.Minute}},
 		{name: "delay with repeat", fault: Fault{Step: 4, Repeat: 2, Kind: FaultDelay, Delay: 45 * time.Minute}},
-		{name: "missing_value", fault: Fault{Step: 5, Kind: FaultMissingValue, Measurement: MeasurementPVPower}},
-		{name: "invalid_measurement", fault: Fault{
+		{name: "missing_value pv_power_kw", fault: Fault{Step: 5, Kind: FaultMissingValue, Measurement: MeasurementPVPower}},
+		{name: "missing_value load_power_kw", fault: Fault{Step: 5, Kind: FaultMissingValue, Measurement: MeasurementLoadPower}},
+		{name: "missing_value battery_soc_percent", fault: Fault{Step: 5, Kind: FaultMissingValue, Measurement: MeasurementBatterySOC}},
+		{name: "missing_value price_eur_per_kwh", fault: Fault{Step: 5, Kind: FaultMissingValue, Measurement: MeasurementPrice}},
+		{name: "invalid_measurement pv_power_kw", fault: Fault{
 			Step: 6, Kind: FaultInvalidMeasurement, Measurement: MeasurementPVPower, Value: -1,
+		}},
+		{name: "invalid_measurement load_power_kw", fault: Fault{
+			Step: 6, Kind: FaultInvalidMeasurement, Measurement: MeasurementLoadPower, Value: -1,
+		}},
+		{name: "invalid_measurement battery_soc_percent", fault: Fault{
+			Step: 6, Kind: FaultInvalidMeasurement, Measurement: MeasurementBatterySOC, Value: -1,
+		}},
+		{name: "invalid_measurement price_eur_per_kwh", fault: Fault{
+			Step: 6, Kind: FaultInvalidMeasurement, Measurement: MeasurementPrice, Value: -1,
 		}},
 		{name: "missing_heartbeat", fault: Fault{Step: 7, Kind: FaultMissingHeartbeat}},
 		{name: "unavailable", fault: Fault{Step: 8, Kind: FaultUnavailable}},

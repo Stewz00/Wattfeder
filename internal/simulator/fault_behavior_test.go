@@ -130,46 +130,102 @@ func TestSimulatorNextObservationAppliesDelay(t *testing.T) {
 }
 
 func TestSimulatorNextObservationAppliesMissingValue(t *testing.T) {
-	sim := newFaultedSimulator(t, Fault{Step: 2, Kind: FaultMissingValue, Measurement: MeasurementPVPower})
-	completeStep(t, sim)
+	for _, measurement := range allMeasurements {
+		t.Run(string(measurement), func(t *testing.T) {
+			sim := newFaultedSimulator(t, Fault{Step: 2, Kind: FaultMissingValue, Measurement: measurement})
+			completeStep(t, sim)
 
-	envelope, err := sim.NextObservation()
-	if err != nil {
-		t.Fatalf("NextObservation() error = %v", err)
-	}
-	if envelope == nil || envelope.Telemetry == nil {
-		t.Fatal("NextObservation() returned no telemetry for the missing_value fault")
-	}
-	if envelope.Telemetry.PVPowerKW != nil {
-		t.Errorf("PVPowerKW = %v, want nil (missing)", *envelope.Telemetry.PVPowerKW)
-	}
-	if envelope.Telemetry.LoadPowerKW == nil {
-		t.Error("LoadPowerKW = nil, want present (only the named measurement is missing)")
-	}
+			envelope, err := sim.NextObservation()
+			if err != nil {
+				t.Fatalf("NextObservation() error = %v", err)
+			}
+			if envelope == nil || envelope.Telemetry == nil {
+				t.Fatal("NextObservation() returned no telemetry for the missing_value fault")
+			}
 
-	if _, err := envelope.Telemetry.Validate(); err == nil {
-		t.Error("Validate() error = nil, want a missing-measurement error")
+			for _, other := range allMeasurements {
+				field := measurementField(envelope.Telemetry, other)
+				if other == measurement {
+					if field != nil {
+						t.Errorf("%s = %v, want nil (missing)", other, *field)
+					}
+					continue
+				}
+				if field == nil {
+					t.Errorf("%s = nil, want present (only %s is missing)", other, measurement)
+				}
+			}
+
+			if _, err := envelope.Telemetry.Validate(); err == nil {
+				t.Error("Validate() error = nil, want a missing-measurement error")
+			}
+		})
 	}
 }
 
 func TestSimulatorNextObservationAppliesInvalidMeasurement(t *testing.T) {
-	sim := newFaultedSimulator(t, Fault{
-		Step: 2, Kind: FaultInvalidMeasurement, Measurement: MeasurementBatterySOC, Value: -5,
-	})
-	completeStep(t, sim)
+	invalidValues := map[Measurement]float64{
+		MeasurementPVPower:    -1,
+		MeasurementLoadPower:  -1,
+		MeasurementBatterySOC: -5,
+		MeasurementPrice:      -1,
+	}
 
-	envelope, err := sim.NextObservation()
-	if err != nil {
-		t.Fatalf("NextObservation() error = %v", err)
+	for _, measurement := range allMeasurements {
+		t.Run(string(measurement), func(t *testing.T) {
+			value := invalidValues[measurement]
+			sim := newFaultedSimulator(t, Fault{
+				Step: 2, Kind: FaultInvalidMeasurement, Measurement: measurement, Value: value,
+			})
+			completeStep(t, sim)
+
+			envelope, err := sim.NextObservation()
+			if err != nil {
+				t.Fatalf("NextObservation() error = %v", err)
+			}
+			if envelope == nil || envelope.Telemetry == nil {
+				t.Fatal("NextObservation() returned no telemetry for the invalid_measurement fault")
+			}
+
+			for _, other := range allMeasurements {
+				field := measurementField(envelope.Telemetry, other)
+				if other == measurement {
+					if field == nil || *field != value {
+						t.Errorf("%s = %v, want %v", other, field, value)
+					}
+					continue
+				}
+				if field == nil {
+					t.Errorf("%s = nil, want present (only %s is overridden)", other, measurement)
+				}
+			}
+
+			if _, err := envelope.Telemetry.Validate(); err == nil {
+				t.Error("Validate() error = nil, want a validation error")
+			}
+		})
 	}
-	if envelope == nil || envelope.Telemetry == nil {
-		t.Fatal("NextObservation() returned no telemetry for the invalid_measurement fault")
-	}
-	if envelope.Telemetry.BatterySOCPercent == nil || *envelope.Telemetry.BatterySOCPercent != -5 {
-		t.Errorf("BatterySOCPercent = %v, want -5", envelope.Telemetry.BatterySOCPercent)
-	}
-	if _, err := envelope.Telemetry.Validate(); err == nil {
-		t.Error("Validate() error = nil, want a validation error")
+}
+
+// allMeasurements lists every Measurement value so fault behavior tests exercise all four
+// telemetry fields, not just the one arbitrarily chosen by earlier single-case tests.
+var allMeasurements = []Measurement{
+	MeasurementPVPower, MeasurementLoadPower, MeasurementBatterySOC, MeasurementPrice,
+}
+
+// measurementField returns the pointer field on tel named by m.
+func measurementField(tel *household.RawTelemetry, m Measurement) *float64 {
+	switch m {
+	case MeasurementPVPower:
+		return tel.PVPowerKW
+	case MeasurementLoadPower:
+		return tel.LoadPowerKW
+	case MeasurementBatterySOC:
+		return tel.BatterySOCPercent
+	case MeasurementPrice:
+		return tel.PriceEURPerKWh
+	default:
+		return nil
 	}
 }
 
