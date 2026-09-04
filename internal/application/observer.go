@@ -13,9 +13,10 @@ type Observer interface {
 
 // EndInterval closes one interval with the record it produced and the error that ended it.
 //
-// Three combinations reach an observer:
+// Four combinations reach an observer:
 //
 //	record, nil   an interval was processed
+//	record, err   the interval built a record but failed to write it
 //	zero, err     the interval failed before producing a record
 //	zero, nil     no interval happened: the source had nothing left to hand over, which ends
 //	              the run rather than an interval
