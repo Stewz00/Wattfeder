@@ -122,6 +122,39 @@ func TestRunClosesObserverScopeWithErrorOnSinkFailure(t *testing.T) {
 	}
 }
 
+func TestRunClosesObserverScopeWithRecordAndErrorOnWriteFailure(t *testing.T) {
+	wantErr := errors.New("disk full")
+	source := &stubSource{envelopes: []*household.ObservationEnvelope{
+		freshEnvelope("event-001", testBaseTime, 5, 1, 50, 0.30),
+	}}
+	observer := &recordingObserver{}
+
+	err := Run(t.Context(), Agent{
+		Clock: NewInstantClock(testBaseTime), Source: source, Sink: &stubSink{},
+		Policy: testPolicy(t), Repository: &stubRepository{}, DeviceID: testDeviceID,
+		ShutdownGrace: testShutdownGrace,
+		Observer:      observer,
+		Write:         func(Record) error { return wantErr },
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("Run() error = %v, want wrapped %v", err, wantErr)
+	}
+	if len(observer.ended) != 1 {
+		t.Fatalf("scopes ended = %d, want 1", len(observer.ended))
+	}
+	// A write failure happens after the record is built, so unlike a commit or sink failure the
+	// scope closes with both a populated Record and the wrapped error.
+	if !errors.Is(observer.ended[0].err, wantErr) {
+		t.Errorf("scope ended with err = %v, want wrapped %v", observer.ended[0].err, wantErr)
+	}
+	if observer.ended[0].record.IsZero() {
+		t.Errorf("scope ended with zero Record, want the record built before the failed write")
+	}
+	if observer.ended[0].record.Disposition != household.DispositionAccepted {
+		t.Errorf("scope ended with record disposition = %v, want %v", observer.ended[0].record.Disposition, household.DispositionAccepted)
+	}
+}
+
 func TestRunPassesTheObserverScopeContextToSourceAndSink(t *testing.T) {
 	source := &ctxCapturingSource{envelope: freshEnvelope("event-001", testBaseTime, 5, 1, 50, 0.30)}
 	sink := &ctxCapturingSink{}
