@@ -7,6 +7,8 @@ import (
 
 // ClassifyInput is everything the domain needs to classify one interval's observation.
 // Envelope is nil when no observation arrived for the interval at all (a missing heartbeat).
+// PriorState and PriorHealth must be the prior values for the same device the envelope
+// reports as its source (Envelope.SourceDeviceID), when Envelope is non-nil.
 type ClassifyInput struct {
 	Envelope    *ObservationEnvelope
 	PriorState  State
@@ -70,7 +72,8 @@ func classifyTelemetry(in ClassifyInput) ClassifyResult {
 func accepted(in ClassifyInput, event Telemetry) ClassifyResult {
 	newState := in.PriorState
 	if err := newState.ApplyTelemetry(event); err != nil {
-		// event was already validated and confirmed strictly newer, so this cannot fail
+		// event was already validated, matches PriorState's device (see ClassifyInput), and is
+		// confirmed strictly newer, so this cannot fail
 		panic(fmt.Sprintf("apply already-validated telemetry: %v", err))
 	}
 
