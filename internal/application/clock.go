@@ -8,6 +8,8 @@ import (
 // Clock paces the runtime loop. Production uses the real clock; tests inject a fake one so a
 // run of a thousand intervals still finishes instantly.
 type Clock interface {
+	// Now returns the current instant in UTC. Callers feed it into durable health state, which
+	// requires a UTC location regardless of the host's local timezone.
 	Now() time.Time
 	Tick(ctx context.Context, d time.Duration) <-chan time.Time
 }
@@ -21,7 +23,7 @@ func NewRealClock() Clock {
 type realClock struct{}
 
 func (realClock) Now() time.Time {
-	return time.Now()
+	return time.Now().UTC()
 }
 
 func (realClock) Tick(ctx context.Context, d time.Duration) <-chan time.Time {

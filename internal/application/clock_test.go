@@ -18,6 +18,14 @@ func TestRealClockNowReturnsWallClockTime(t *testing.T) {
 	}
 }
 
+func TestRealClockNowReturnsUTC(t *testing.T) {
+	clock := NewRealClock()
+
+	if got := clock.Now().Location(); got != time.UTC {
+		t.Errorf("Now().Location() = %v, want %v", got, time.UTC)
+	}
+}
+
 func TestRealClockTickFiresAfterDuration(t *testing.T) {
 	clock := NewRealClock()
 	const wait = 5 * time.Millisecond
