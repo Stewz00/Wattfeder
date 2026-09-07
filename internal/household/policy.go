@@ -62,7 +62,6 @@ func (p Policy) Decide(state State) Command {
 	}
 
 	if state.BatterySOCPercent <= minimumDischargeSOCPercent {
-		// %% emits the literal percent sign after the formatted reserve value
 		return Command{
 			Decision: DecisionIdle,
 			Reason: fmt.Sprintf(
