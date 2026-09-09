@@ -56,7 +56,7 @@ same style as `Clock`, `TelemetrySource`, and `CommandSink`. A nil `Observer`
 disables observation entirely, which is what `internal/demo` and every fixed
 scenario still do.
 
-`cmd/wattfeder` composes four observers behind `observability.NewMultiObserver`:
+`cmd/wattfeder` composes up to four observers behind `observability.NewMultiObserver`:
 
 * `Logger` writes one JSON line per interval to stderr — never stdout, which
   stays the record stream `make demo`, `make demo-faults`, and the CLI tests
@@ -84,7 +84,7 @@ integration test cannot collide on a port.
    and selects a `Clock`: the real clock by default, or an instant clock for
    `-pace fast` and every fixed scenario.
 2. Normal CLI startup migrates SQLite and restores the device snapshot
-   (latest state, receive time, and health) for the configured device.
+   (latest state and device health) for the configured device.
 3. `application.Run` checks the context, then waits for the clock to tick one
    interval. The wait falls between observations, not ahead of the first one,
    so an agent reports its opening interval as soon as it starts.
