@@ -48,9 +48,10 @@ select a different database file.
 
 `-agent-id` names the instance in the `agent_id` field of every record it
 writes, but stays a runtime value: it is not written to SQLite and nothing reads
-it back out of the database. `-pace fast` is what
-`make run`, the demo, and the scenario runner use so they finish immediately
-instead of waiting on the wall clock.
+it back out of the database. `-pace fast` is what `make run` uses so it
+finishes immediately instead of waiting on the wall clock. The demo and fixed
+scenarios pace instantly on their own — `-scenario` cannot be combined with
+other flags, so they never take `-pace`.
 
 No environment variables or secrets are required. The demo uses
 `scenarios/demo.json` instead of environment variables.
