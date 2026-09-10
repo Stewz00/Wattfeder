@@ -95,36 +95,60 @@ func TestClassifyAcceptsFreshStrictlyNewerEvent(t *testing.T) {
 }
 
 func TestClassifyAcceptsDelayedStrictlyNewerEvent(t *testing.T) {
-	eventTime := classifyStart.Add(classifyInterval)
-	receivedAt := eventTime.Add(classifyInterval + time.Minute)
-	raw := classifyRaw(eventTime)
-	envelope := &ObservationEnvelope{
-		SourceDeviceID: "home-001",
-		ReceivedAt:     receivedAt,
-		Telemetry:      &raw,
-		Available:      true,
+	tests := []struct {
+		name         string
+		delay        time.Duration
+		wantSuppress bool
+		wantHealth   DeviceHealthStatus
+	}{
+		{
+			name:         "delay equal to interval",
+			delay:        classifyInterval,
+			wantSuppress: false,
+			wantHealth:   HealthOnline,
+		},
+		{
+			name:         "delay one minute over interval",
+			delay:        classifyInterval + time.Minute,
+			wantSuppress: true,
+			wantHealth:   HealthStale,
+		},
 	}
 
-	result := Classify(ClassifyInput{
-		Envelope:    envelope,
-		PriorState:  classifyPriorState(),
-		PriorHealth: classifyPriorHealth(),
-		Policy:      classifyPolicy(t),
-		Interval:    classifyInterval,
-		Now:         receivedAt,
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			eventTime := classifyStart.Add(classifyInterval)
+			receivedAt := eventTime.Add(tt.delay)
+			raw := classifyRaw(eventTime)
+			envelope := &ObservationEnvelope{
+				SourceDeviceID: "home-001",
+				ReceivedAt:     receivedAt,
+				Telemetry:      &raw,
+				Available:      true,
+			}
 
-	if result.Disposition != DispositionAccepted {
-		t.Errorf("Disposition = %v, want %v", result.Disposition, DispositionAccepted)
-	}
-	if result.State == nil || result.State.UpdatedAt != eventTime {
-		t.Errorf("State = %+v, want UpdatedAt %v", result.State, eventTime)
-	}
-	if !result.SuppressCommand {
-		t.Error("SuppressCommand = false, want true for a delayed accepted event")
-	}
-	if result.Health.Status != HealthStale {
-		t.Errorf("Health.Status = %v, want %v", result.Health.Status, HealthStale)
+			result := Classify(ClassifyInput{
+				Envelope:    envelope,
+				PriorState:  classifyPriorState(),
+				PriorHealth: classifyPriorHealth(),
+				Policy:      classifyPolicy(t),
+				Interval:    classifyInterval,
+				Now:         receivedAt,
+			})
+
+			if result.Disposition != DispositionAccepted {
+				t.Errorf("Disposition = %v, want %v", result.Disposition, DispositionAccepted)
+			}
+			if result.State == nil || result.State.UpdatedAt != eventTime {
+				t.Errorf("State = %+v, want UpdatedAt %v", result.State, eventTime)
+			}
+			if result.SuppressCommand != tt.wantSuppress {
+				t.Errorf("SuppressCommand = %v, want %v for delay of %v", result.SuppressCommand, tt.wantSuppress, tt.delay)
+			}
+			if result.Health.Status != tt.wantHealth {
+				t.Errorf("Health.Status = %v, want %v for delay of %v", result.Health.Status, tt.wantHealth, tt.delay)
+			}
+		})
 	}
 }
 
