@@ -53,6 +53,47 @@ func TestObservationEnvelopeValidateRejects(t *testing.T) {
 	}
 }
 
+func TestReceivedAtOrNow(t *testing.T) {
+	now := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	receivedAt := now.Add(-time.Hour)
+
+	tests := []struct {
+		name     string
+		envelope *ObservationEnvelope
+		want     time.Time
+	}{
+		{
+			name:     "nil envelope falls back to now",
+			envelope: nil,
+			want:     now,
+		},
+		{
+			name:     "zero ReceivedAt falls back to now",
+			envelope: &ObservationEnvelope{ReceivedAt: time.Time{}},
+			want:     now,
+		},
+		{
+			name:     "non-UTC ReceivedAt falls back to now",
+			envelope: &ObservationEnvelope{ReceivedAt: receivedAt.In(time.FixedZone("CEST", 2*60*60))},
+			want:     now,
+		},
+		{
+			name:     "well-formed UTC ReceivedAt is used",
+			envelope: &ObservationEnvelope{ReceivedAt: receivedAt},
+			want:     receivedAt,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ReceivedAtOrNow(tt.envelope, now)
+			if !got.Equal(tt.want) {
+				t.Fatalf("ReceivedAtOrNow() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func validObservationEnvelope() ObservationEnvelope {
 	raw := validRawTelemetry()
 	return ObservationEnvelope{
