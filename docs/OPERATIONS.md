@@ -65,9 +65,9 @@ only the record stream, so logs and records can always be split with
 `trace_id` — the same ID as the span for that interval, so a log line and its
 trace can be cross-referenced directly.
 
-Rejected and unavailable observations log at `warn`; accepted, history-only,
-and duplicate observations log at `info`; a run-ending failure logs at
-`error`. `-log-level` controls the minimum level written.
+Rejected and unavailable observations log at `warn`; accepted, missing,
+history-only, and duplicate observations log at `info`; a run-ending failure
+logs at `error`. `-log-level` controls the minimum level written.
 
 ## Tracing
 

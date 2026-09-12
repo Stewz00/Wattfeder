@@ -79,6 +79,9 @@ func TestLoggerLevelsByDispositionAndError(t *testing.T) {
 		wantLevel   string
 	}{
 		{name: "accepted logs info", disposition: household.DispositionAccepted, wantLevel: "INFO"},
+		{name: "missing logs info", disposition: household.DispositionMissing, wantLevel: "INFO"},
+		{name: "history-only logs info", disposition: household.DispositionHistoryOnly, wantLevel: "INFO"},
+		{name: "duplicate logs info", disposition: household.DispositionDuplicate, wantLevel: "INFO"},
 		{name: "rejected logs warn", disposition: household.DispositionRejected, wantLevel: "WARN"},
 		{name: "unavailable logs warn", disposition: household.DispositionUnavailable, wantLevel: "WARN"},
 		{name: "run failure logs error", disposition: household.DispositionAccepted, err: errors.New("boom"), wantLevel: "ERROR"},
