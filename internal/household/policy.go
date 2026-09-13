@@ -7,7 +7,6 @@ import (
 )
 
 const (
-	maximumSOCPercent          = 100.0
 	minimumDischargeSOCPercent = 20.0
 	dischargePriceEURPerKWh    = 0.30
 )

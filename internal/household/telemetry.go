@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// maximumSOCPercent is the physical top of the battery SOC scale, not a tunable control target.
+const maximumSOCPercent = 100.0
+
 // EventID is the producer-assigned identity of one telemetry event.
 type EventID string
 
