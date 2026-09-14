@@ -43,7 +43,10 @@ const (
 	priceEveningPeakHour       = 19.0
 	priceEveningPeakWidthHours = 2.0
 	priceEveningPeakScale      = 0.65
+)
 
+// minimumBatterySOCPercent and maximumBatterySOCPercent are the physical bounds of the battery SOC scale.
+const (
 	minimumBatterySOCPercent = 0.0
 	maximumBatterySOCPercent = 100.0
 )
