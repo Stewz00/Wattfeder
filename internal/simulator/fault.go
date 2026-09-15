@@ -19,7 +19,7 @@ type FaultKind string
 const (
 	// FaultDuplicate means the prior interval's observation is redelivered verbatim.
 	FaultDuplicate FaultKind = "duplicate"
-	// FaultOutOfOrder means an observation is delivered with an event time and ID from an earlier interval.
+	// FaultOutOfOrder means an observation is delivered with its event time shifted earlier by a configured offset, under a new configured event ID.
 	FaultOutOfOrder FaultKind = "out_of_order"
 	// FaultDelay means the observation's event time is unchanged but it arrives after a positive delay.
 	FaultDelay FaultKind = "delay"
