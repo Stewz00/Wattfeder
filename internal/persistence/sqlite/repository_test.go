@@ -592,6 +592,27 @@ func TestRepositorySnapshotReturnsHealthWithoutPriorState(t *testing.T) {
 	}
 }
 
+func TestRepositoryEnforcesForeignKeys(t *testing.T) {
+	for _, path := range []string{":memory:", filepath.Join(t.TempDir(), "wattfeder.db")} {
+		t.Run(path, func(t *testing.T) {
+			repository := openMigratedRepository(t, path)
+			defer repository.Close()
+
+			_, err := repository.db.Exec(`
+INSERT INTO commands (event_id, created_at, decision, power_kw, reason)
+VALUES ('missing-event', ?, 'idle', 0, 'orphan command')`,
+				time.Now().UTC().Format(timestampFormat),
+			)
+			if err == nil {
+				t.Fatal("insert with unresolvable event_id succeeded, want foreign key constraint failure")
+			}
+			if !strings.Contains(err.Error(), "FOREIGN KEY constraint failed") {
+				t.Fatalf("insert error = %v, want foreign key constraint failure", err)
+			}
+		})
+	}
+}
+
 func openRepository(t *testing.T, path string) *Repository {
 	t.Helper()
 	repository, err := Open(path)
