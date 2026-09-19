@@ -7,8 +7,10 @@ import (
 )
 
 const (
+	// minimumDischargeSOCPercent is the control-policy reserve floor, not a physical or safety limit.
 	minimumDischargeSOCPercent = 20.0
-	dischargePriceEURPerKWh    = 0.30
+	// dischargePriceEURPerKWh is the control-policy price threshold above which discharge is favored.
+	dischargePriceEURPerKWh = 0.30
 )
 
 // Policy makes deterministic battery decisions for a configured battery and telemetry interval.
