@@ -61,9 +61,10 @@ Structured JSON, one line per interval, written to **stderr** — stdout carries
 only the record stream, so logs and records can always be split with
 `1>records.jsonl 2>agent.log`. Each interval line carries `agent_id`,
 `device_id`, `event_id`, `disposition`, `disposition_reason`, `health_status`,
-`decision`, `duration_ms`, `event_lag_seconds`, and, when tracing is enabled,
-`trace_id` — the same ID as the span for that interval, so a log line and its
-trace can be cross-referenced directly.
+`decision`, `duration_ms`, `event_lag_seconds` (only when the interval carried
+telemetry), and, when tracing is enabled, `trace_id` — the same ID as the span
+for that interval, so a log line and its trace can be cross-referenced
+directly.
 
 Rejected and unavailable observations log at `warn`; accepted, missing,
 history-only, and duplicate observations log at `info`; a run-ending failure

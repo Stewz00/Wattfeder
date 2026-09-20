@@ -71,6 +71,27 @@ func TestLoggerEmitsIntervalFields(t *testing.T) {
 	}
 }
 
+func TestLoggerOmitsEventLagSecondsWithoutATimestamp(t *testing.T) {
+	var buf bytes.Buffer
+	logger := newTestLogger(&buf)
+
+	record := application.Record{
+		AgentID:      "agent-001",
+		DeviceID:     "home-001",
+		Disposition:  household.DispositionMissing,
+		HealthStatus: household.HealthOnline,
+		Decision:     household.DecisionIdle,
+	}
+
+	_, end := logger.BeginInterval(t.Context())
+	end(record, nil)
+
+	line := decodeLine(t, &buf)
+	if _, ok := line["event_lag_seconds"]; ok {
+		t.Errorf("event_lag_seconds = %v, want field absent: record has no Timestamp", line["event_lag_seconds"])
+	}
+}
+
 func TestLoggerLevelsByDispositionAndError(t *testing.T) {
 	tests := []struct {
 		name        string
