@@ -43,9 +43,10 @@ series):
 | `wattfeder_processing_duration_seconds` | histogram | Time for one interval: source, classify, commit, apply, write. |
 | `wattfeder_event_lag_seconds` | gauge | Receive time minus event time for the most recently timestamped telemetry. Untouched by an interval that carried none (a missing heartbeat, for instance), so it always reflects the last real measurement rather than resetting to zero. |
 
-An interval that ends before it classifies an observation — a failed commit, for
-instance — touches none of these series. It is reported by its log line and its
-span instead, and it ends the run.
+An interval that ends without producing a record — a telemetry-source error, a
+failed commit, or a failed command application, for instance — touches none of
+these series. It is reported by its log line and its span instead, and it ends
+the run.
 
 Two metrics that might be expected are deliberately absent:
 
