@@ -15,7 +15,10 @@ import (
 )
 
 // These fixed parameters describe simple synthetic daily profiles
-// Peak widths are Gaussian standard deviations in hours; scales are multipliers of each profile's baseline
+// Peak widths are Gaussian standard deviations in hours
+// The *DailyFactorMin/Max bounds are direct multipliers of a profile's baseline
+// The *Scale constants are instead added to 1 (or subtracted, for a dip) at the peak, so a load
+// evening peak of loadEveningPeakScale=2.5 yields a 3.5x baseline peak, not a 2.5x one
 const (
 	hoursPerDay         = 24.0
 	pvSunriseHour       = 6.0
