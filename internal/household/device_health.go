@@ -8,7 +8,8 @@ type DeviceHealthStatus string
 const (
 	// HealthOnline means a strictly newer valid event has been accepted within the stale threshold.
 	HealthOnline DeviceHealthStatus = "online"
-	// HealthStale means the latest accepted event is older than the stale threshold.
+	// HealthStale means the latest accepted event is older than the stale threshold, or was accepted
+	// but arrived more than one telemetry interval after its event time.
 	HealthStale DeviceHealthStatus = "stale"
 	// HealthOffline means contact has timed out or the source reported unavailability.
 	HealthOffline DeviceHealthStatus = "offline"
