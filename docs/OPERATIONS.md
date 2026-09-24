@@ -38,7 +38,7 @@ series):
 | --- | --- | --- |
 | `wattfeder_telemetry_received_total` | counter | An envelope arrived. Does not increment for a missing heartbeat, since no envelope arrived at all. |
 | `wattfeder_telemetry_processed_total{disposition}` | counter | One per interval, labeled by disposition (`accepted`, `history_only`, `duplicate`, `rejected`, `missing`, `unavailable`). |
-| `wattfeder_commands_created_total{decision}` | counter | One per command actually created (`charge`, `discharge`, or the idle equivalent). |
+| `wattfeder_commands_created_total{decision}` | counter | One per command actually created (`charge`, `discharge`, or `idle`). |
 | `wattfeder_device_health{status}` | gauge | 1 on the currently active health status, 0 on the other three. |
 | `wattfeder_processing_duration_seconds` | histogram | Time for one interval: source, classify, commit, apply, write. |
 | `wattfeder_event_lag_seconds` | gauge | Receive time minus event time for the most recently timestamped telemetry. Untouched by an interval that carried none (a missing heartbeat, for instance), so it always reflects the last real measurement rather than resetting to zero. |
