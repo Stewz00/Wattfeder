@@ -54,6 +54,17 @@ wattfeder_telemetry_received_total 1
 	}
 }
 
+func TestMetricsCommandsCreatedLabelsIdleDecision(t *testing.T) {
+	m := NewMetrics()
+	_, end := m.BeginInterval(t.Context())
+	end(application.Record{Disposition: household.DispositionAccepted, Decision: household.DecisionIdle}, nil)
+
+	got := testutil.ToFloat64(m.commandsCreated.WithLabelValues(string(household.DecisionIdle)))
+	if got != 1 {
+		t.Errorf(`wattfeder_commands_created_total{decision="idle"} = %v, want 1`, got)
+	}
+}
+
 func TestMetricsDeviceHealthSetsExactlyOneStatusToOne(t *testing.T) {
 	m := NewMetrics()
 	_, end := m.BeginInterval(t.Context())
