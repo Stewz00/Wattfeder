@@ -133,8 +133,10 @@ func validateUTCTime(name string, timestamp time.Time) error {
 type CommitStatus uint8
 
 const (
+	// CommitUnknown is the zero value; it carries no meaning and is returned alongside a non-nil error.
+	CommitUnknown CommitStatus = iota
 	// CommitStored means the observation's durable records were committed.
-	CommitStored CommitStatus = iota + 1
+	CommitStored
 	// CommitDuplicate means the event ID was already processed and no records were changed.
 	CommitDuplicate
 )
@@ -156,6 +158,6 @@ type Repository interface {
 
 	// CommitProcessing stores one interval's observation result in one transaction.
 	// A duplicate event ID returns CommitDuplicate without changing any record.
-	// An error means none of the supplied records became durable.
+	// An error means none of the supplied records became durable, and the returned status is CommitUnknown.
 	CommitProcessing(ctx context.Context, result ObservationResult) (CommitStatus, error)
 }

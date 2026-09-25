@@ -232,23 +232,23 @@ func (r *Repository) CommitProcessing(
 	result persistence.ObservationResult,
 ) (persistence.CommitStatus, error) {
 	if err := result.Validate(); err != nil {
-		return 0, fmt.Errorf("validate processing result: %w", err)
+		return persistence.CommitUnknown, fmt.Errorf("validate processing result: %w", err)
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, fmt.Errorf("begin processing transaction: %w", err)
+		return persistence.CommitUnknown, fmt.Errorf("begin processing transaction: %w", err)
 	}
 	defer tx.Rollback()
 
 	if result.Telemetry != nil {
 		stored, err := insertTelemetry(ctx, tx, *result.Telemetry)
 		if err != nil {
-			return 0, err
+			return persistence.CommitUnknown, err
 		}
 		if !stored {
 			if err := tx.Rollback(); err != nil {
-				return 0, fmt.Errorf("roll back duplicate processing transaction: %w", err)
+				return persistence.CommitUnknown, fmt.Errorf("roll back duplicate processing transaction: %w", err)
 			}
 			return persistence.CommitDuplicate, nil
 		}
@@ -257,21 +257,21 @@ func (r *Repository) CommitProcessing(
 	if result.LatestState != nil {
 		applied, err := replaceLatestStateIfNewer(ctx, tx, *result.LatestState)
 		if err != nil {
-			return 0, err
+			return persistence.CommitUnknown, err
 		}
 		if applied && result.Command != nil {
 			if err := insertCommand(ctx, tx, *result.Command); err != nil {
-				return 0, err
+				return persistence.CommitUnknown, err
 			}
 		}
 	}
 
 	if err := upsertHealth(ctx, tx, result.DeviceID, result.Health); err != nil {
-		return 0, err
+		return persistence.CommitUnknown, err
 	}
 
 	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("commit processing transaction: %w", err)
+		return persistence.CommitUnknown, fmt.Errorf("commit processing transaction: %w", err)
 	}
 
 	return persistence.CommitStored, nil
