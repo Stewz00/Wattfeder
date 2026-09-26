@@ -48,6 +48,38 @@ func TestApplicationRuntimeNeverImportsAnAdapter(t *testing.T) {
 	}
 }
 
+// TracedRepository is the only place OpenTelemetry meets storage, which only holds if
+// persistence and its SQLite adapter never import a tracing or metrics package themselves.
+func TestPersistenceContractsStayFreeOfTracingImports(t *testing.T) {
+	allowed := []string{modulePath + "/internal/household"}
+
+	got, err := disallowedImports("../persistence", allowed)
+	if err != nil {
+		t.Fatalf("disallowedImports() error = %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("internal/persistence imports outside the domain contract: %v", got)
+	}
+}
+
+// TracedRepository is the only place OpenTelemetry meets storage, which only holds if
+// persistence and its SQLite adapter never import a tracing or metrics package themselves.
+func TestSQLiteAdapterStaysFreeOfTracingImports(t *testing.T) {
+	allowed := []string{
+		modulePath + "/internal/household",
+		modulePath + "/internal/persistence",
+		"modernc.org/sqlite",
+	}
+
+	got, err := disallowedImports("../persistence/sqlite", allowed)
+	if err != nil {
+		t.Fatalf("disallowedImports() error = %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("internal/persistence/sqlite imports outside the domain, persistence, and driver: %v", got)
+	}
+}
+
 func TestDisallowedImportsFindsNothingOutsideTheAllowlist(t *testing.T) {
 	dir := t.TempDir()
 	writeGoFile(t, dir, "clean.go", `package example
