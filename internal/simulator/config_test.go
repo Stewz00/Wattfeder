@@ -42,6 +42,9 @@ func TestConfigValidate(t *testing.T) {
 		{name: "device ID is empty", modify: func(cfg *Config) { cfg.DeviceID = "" }, wantErr: true},
 		{name: "device ID contains only whitespace", modify: func(cfg *Config) { cfg.DeviceID = " \t\n" }, wantErr: true},
 		{name: "start is zero", modify: func(cfg *Config) { cfg.Start = time.Time{} }, wantErr: true},
+		{name: "fault schedule is invalid", modify: func(cfg *Config) {
+			cfg.Faults = FaultSchedule{{Step: 0, Kind: FaultMissingHeartbeat}}
+		}, wantErr: true},
 	}
 
 	for _, tt := range tests {
