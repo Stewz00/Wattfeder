@@ -165,6 +165,20 @@ func TestPolicyDecide(t *testing.T) {
 			},
 		},
 		{
+			name: "discharges unlimited at exactly the reserve-limited maximum",
+			state: State{
+				PVPowerKW:         1,
+				LoadPowerKW:       3,
+				BatterySOCPercent: 40,
+				PriceEURPerKWh:    0.30,
+			},
+			want: Command{
+				Decision: DecisionDischarge,
+				PowerKW:  2,
+				Reason:   dischargeReason,
+			},
+		},
+		{
 			name: "limits discharge just above reserve boundary",
 			state: State{
 				PVPowerKW:         1,
