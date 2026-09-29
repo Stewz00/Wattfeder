@@ -47,7 +47,9 @@ func (c Config) Validate() error {
 		return errors.New("battery capacity must be finite and greater than 0")
 	}
 
-	if !isFinite(c.StartingBatterySOCPercent) || c.StartingBatterySOCPercent < minimumBatterySOCPercent || c.StartingBatterySOCPercent > maximumBatterySOCPercent {
+	if !isFinite(c.StartingBatterySOCPercent) ||
+		c.StartingBatterySOCPercent < minimumBatterySOCPercent ||
+		c.StartingBatterySOCPercent > maximumBatterySOCPercent {
 		return errors.New("starting battery SOC must be finite and between 0 and 100")
 	}
 
