@@ -39,7 +39,7 @@ series):
 | `wattfeder_telemetry_received_total` | counter | An envelope arrived. Does not increment for a missing heartbeat, since no envelope arrived at all. |
 | `wattfeder_telemetry_processed_total{disposition}` | counter | One per interval, labeled by disposition (`accepted`, `history_only`, `duplicate`, `rejected`, `missing`, `unavailable`). |
 | `wattfeder_commands_created_total{decision}` | counter | One per command actually created (`charge`, `discharge`, or `idle`). |
-| `wattfeder_device_health{status}` | gauge | 1 on the currently active health status, 0 on the other three. |
+| `wattfeder_device_health{status}` | gauge | 1 on the currently active health status, 0 on the other three. A device becomes stale at 2x `-interval` since its last state update, and offline at 3x `-interval` since its last telemetry contact. |
 | `wattfeder_processing_duration_seconds` | histogram | Time for one interval: source, classify, commit, apply, write. |
 | `wattfeder_event_lag_seconds` | gauge | Receive time minus event time for the most recently timestamped telemetry. Untouched by an interval that carried none (a missing heartbeat, for instance), so it always reflects the last real measurement rather than resetting to zero. |
 
@@ -91,9 +91,11 @@ agent.
 **A device is stale or offline.** This is visible in
 `wattfeder_device_health` and in each record's `health_status`, but it does
 not affect `/readyz`: an agent whose household hasn't reported recently is
-still a healthy, ready agent. Compare `health_transition_at` in the record
-stream against the current time to see how long the device has been in that
-state.
+still a healthy, ready agent. With the default thresholds, a device goes
+stale once 2x `-interval` has passed since its last state update, and offline
+once 3x `-interval` has passed since its last telemetry contact. Compare
+`health_transition_at` in the record stream against the current time to see
+how long the device has been in that state.
 
 **Readiness is red.** Read the `failing_check` field. `telemetry` means no
 interval has completed recently (see above). `storage` means the most recent

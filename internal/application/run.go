@@ -101,6 +101,8 @@ func Run(ctx context.Context, agent Agent) error {
 	}
 
 	interval := agent.Policy.Interval()
+	// Zero staleAfter/offlineAfter select the interval-derived defaults: stale at 2x interval,
+	// offline at 3x
 	healthPolicy, err := household.NewHealthPolicy(interval, 0, 0)
 	if err != nil {
 		return fmt.Errorf("configure health policy: %w", err)
