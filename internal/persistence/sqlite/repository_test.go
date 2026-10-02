@@ -511,6 +511,9 @@ func TestRepositoryCommitProcessingRejectsInvalidResultBeforeWriting(t *testing.
 	if err == nil || !strings.Contains(err.Error(), "validate processing result") {
 		t.Fatalf("CommitProcessing() = (%v, %v), want validation error", status, err)
 	}
+	if status != persistence.CommitUnknown {
+		t.Errorf("CommitProcessing() status = %v, want CommitUnknown", status)
+	}
 
 	var count int
 	if err := repository.db.QueryRow("SELECT COUNT(*) FROM telemetry_events").Scan(&count); err != nil {
