@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -563,33 +564,74 @@ func TestRunSeparatesLogsFromTheRecordStream(t *testing.T) {
 		t.Fatalf("run() error = %v", err)
 	}
 
-	if errOutput.Len() == 0 {
-		t.Fatal("errOutput is empty, want structured log lines")
+	lines := intervalProcessedLines(t, &errOutput)
+	if len(lines) != 2 {
+		t.Errorf("interval_processed log lines = %d, want 2", len(lines))
 	}
-	decoder := json.NewDecoder(&errOutput)
-	logLines := 0
-	for {
-		var line map[string]any
-		if err := decoder.Decode(&line); errors.Is(err, io.EOF) {
-			break
-		} else if err != nil {
-			t.Fatalf("decode log line: %v", err)
+	// Without -otlp-endpoint no span is ever opened, so the logger has no trace_id to read back.
+	for i, line := range lines {
+		if _, hasTraceID := line["trace_id"]; hasTraceID {
+			t.Errorf("log line %d has trace_id = %v, want none without -otlp-endpoint", i, line["trace_id"])
 		}
-		if line["msg"] == "interval_processed" {
-			logLines++
-		}
-	}
-	if logLines != 2 {
-		t.Errorf("interval_processed log lines = %d, want 2", logLines)
 	}
 
-	decoder = json.NewDecoder(&output)
+	decoder := json.NewDecoder(&output)
 	for {
 		var record application.Record
 		if err := decoder.Decode(&record); errors.Is(err, io.EOF) {
 			break
 		} else if err != nil {
 			t.Fatalf("decode record: %v (stdout must carry only records)", err)
+		}
+	}
+}
+
+func TestRunWithOTLPEndpointAddsTraceIDToEveryIntervalLogLine(t *testing.T) {
+	// A local server stands in for the collector: the assertions are about the trace_id the
+	// tracer hands the logger, not about what reaches an actual collector.
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(collector.Close)
+	endpoint := strings.TrimPrefix(collector.URL, "http://")
+
+	var output, errOutput bytes.Buffer
+	databaseArgs := []string{"-database", filepath.Join(t.TempDir(), "wattfeder.db")}
+	args := append([]string{
+		"-interval", "24h", "-pace", "fast", "-intervals", "2", "-otlp-endpoint", endpoint,
+	}, databaseArgs...)
+
+	if err := runWithErrOutput(context.Background(), args, &output, &errOutput); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+
+	lines := intervalProcessedLines(t, &errOutput)
+	if len(lines) != 2 {
+		t.Fatalf("interval_processed log lines = %d, want 2", len(lines))
+	}
+	for i, line := range lines {
+		traceID, _ := line["trace_id"].(string)
+		if traceID == "" {
+			t.Errorf("log line %d trace_id = %q, want non-empty (the tracer observer must run before the logger)", i, traceID)
+		}
+	}
+}
+
+// intervalProcessedLines decodes errOutput's structured log stream and returns the fields of each
+// "interval_processed" line, in order.
+func intervalProcessedLines(t *testing.T, errOutput io.Reader) []map[string]any {
+	t.Helper()
+	var lines []map[string]any
+	decoder := json.NewDecoder(errOutput)
+	for {
+		var line map[string]any
+		if err := decoder.Decode(&line); errors.Is(err, io.EOF) {
+			return lines
+		} else if err != nil {
+			t.Fatalf("decode log line: %v", err)
+		}
+		if line["msg"] == "interval_processed" {
+			lines = append(lines, line)
 		}
 	}
 }
