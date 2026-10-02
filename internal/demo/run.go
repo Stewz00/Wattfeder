@@ -218,10 +218,14 @@ func Run(ctx context.Context, scenario Scenario, output io.Writer) error {
 }
 
 // compareExpected checks produced against expected element by element, skipping the check
-// entirely when expected is empty.
+// entirely when expected is empty. It requires produced and expected to have equal length so
+// a short or long produced slice is reported rather than silently passing or panicking.
 func compareExpected[T ~string](label string, produced, expected []T) error {
 	if len(expected) == 0 {
 		return nil
+	}
+	if len(produced) != len(expected) {
+		return fmt.Errorf("%s count = %d, expected %d", label, len(produced), len(expected))
 	}
 	for i, got := range produced {
 		if got != expected[i] {
