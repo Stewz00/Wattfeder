@@ -11,6 +11,9 @@ type Clock interface {
 	// Now returns the current instant in UTC. Callers feed it into durable health state, which
 	// requires a UTC location regardless of the host's local timezone.
 	Now() time.Time
+	// Tick returns a channel that delivers at most one value after d elapses. It delivers no
+	// value if ctx is cancelled before d elapses. An implementation may advance Now by d when
+	// Tick fires.
 	Tick(ctx context.Context, d time.Duration) <-chan time.Time
 }
 
