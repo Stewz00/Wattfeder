@@ -1,45 +1,54 @@
 package demo
 
 import (
-	"strings"
 	"testing"
 )
 
-func TestCompareExpectedSkipsEmptyExpected(t *testing.T) {
-	if err := compareExpected("decision", []string{"charge", "idle"}, nil); err != nil {
-		t.Errorf("compareExpected() error = %v, want nil", err)
+func TestCompareExpected(t *testing.T) {
+	tests := []struct {
+		name     string
+		produced []string
+		expected []string
+		wantErr  string
+	}{
+		{
+			name:     "equal lengths with a mismatch",
+			produced: []string{"charge"},
+			expected: []string{"discharge"},
+			wantErr:  `label 0 = "charge", expected "discharge"`,
+		},
+		{
+			name:     "produced longer than expected",
+			produced: []string{"charge", "idle"},
+			expected: []string{"charge"},
+			wantErr:  "label count = 2, expected 1",
+		},
+		{
+			name:     "produced shorter than expected",
+			produced: []string{"charge"},
+			expected: []string{"charge", "idle"},
+			wantErr:  "label count = 1, expected 2",
+		},
+		{
+			name:     "empty expected skips the check",
+			produced: []string{"charge", "idle"},
+			expected: nil,
+			wantErr:  "",
+		},
 	}
-}
 
-func TestCompareExpectedRejectsShorterProduced(t *testing.T) {
-	err := compareExpected("decision", []string{"charge"}, []string{"charge", "idle"})
-	if err == nil {
-		t.Fatal("compareExpected() error = nil, want a count mismatch error")
-	}
-	wantErr := "decision count = 1, expected 2"
-	if !strings.Contains(err.Error(), wantErr) {
-		t.Errorf("compareExpected() error = %q, want it to contain %q", err.Error(), wantErr)
-	}
-}
-
-func TestCompareExpectedRejectsLongerProduced(t *testing.T) {
-	err := compareExpected("decision", []string{"charge", "idle", "discharge"}, []string{"charge", "idle"})
-	if err == nil {
-		t.Fatal("compareExpected() error = nil, want a count mismatch error")
-	}
-	wantErr := "decision count = 3, expected 2"
-	if !strings.Contains(err.Error(), wantErr) {
-		t.Errorf("compareExpected() error = %q, want it to contain %q", err.Error(), wantErr)
-	}
-}
-
-func TestCompareExpectedReportsDifferingElement(t *testing.T) {
-	err := compareExpected("decision", []string{"charge", "idle"}, []string{"charge", "discharge"})
-	if err == nil {
-		t.Fatal("compareExpected() error = nil, want a value mismatch error")
-	}
-	wantErr := `decision 1 = "idle", expected "discharge"`
-	if !strings.Contains(err.Error(), wantErr) {
-		t.Errorf("compareExpected() error = %q, want it to contain %q", err.Error(), wantErr)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := compareExpected("label", test.produced, test.expected)
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatalf("compareExpected() error = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != test.wantErr {
+				t.Fatalf("compareExpected() error = %v, want %q", err, test.wantErr)
+			}
+		})
 	}
 }
