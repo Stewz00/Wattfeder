@@ -15,10 +15,11 @@ name: Nightly Maintenance
 # The workflow never merges. It only ever opens a pull request.
 
 on:
-  schedule:
-    # 04:27 Berlin time. Off the hour because scheduled runs bunch up on round times.
-    - cron: "27 4 * * *"
-      timezone: "Europe/Berlin"
+  # Nightly schedule paused. Re-enable by uncommenting the schedule trigger below.
+  # schedule:
+  #   # 04:27 Berlin time. Off the hour because scheduled runs bunch up on round times.
+  #   - cron: "27 4 * * *"
+  #     timezone: "Europe/Berlin"
   workflow_dispatch:
 
 concurrency:
