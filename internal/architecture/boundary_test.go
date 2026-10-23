@@ -49,7 +49,7 @@ func TestApplicationRuntimeNeverImportsAnAdapter(t *testing.T) {
 }
 
 // TracedRepository is the only place OpenTelemetry meets storage, which only holds if
-// persistence and its SQLite adapter never import a tracing or metrics package themselves.
+// internal/persistence itself never imports a tracing or metrics package.
 func TestPersistenceContractsStayFreeOfTracingImports(t *testing.T) {
 	allowed := []string{modulePath + "/internal/household"}
 
@@ -63,7 +63,7 @@ func TestPersistenceContractsStayFreeOfTracingImports(t *testing.T) {
 }
 
 // TracedRepository is the only place OpenTelemetry meets storage, which only holds if
-// persistence and its SQLite adapter never import a tracing or metrics package themselves.
+// its SQLite adapter never imports a tracing or metrics package itself.
 func TestSQLiteAdapterStaysFreeOfTracingImports(t *testing.T) {
 	allowed := []string{
 		modulePath + "/internal/household",
