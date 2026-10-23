@@ -2,7 +2,7 @@
 
 ## Required tools
 
-- Go 1.26.5, as declared in `go.mod`
+- Go 1.26.10, as declared in `go.mod`
 - Make for the repository commands
 - Git to clone the repository
 - Docker, only for `make docker-build` and `make compose-up`

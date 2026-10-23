@@ -20,7 +20,7 @@ make demo         # A clean day: four intervals, four decisions
 make demo-faults  # A day with duplicate, late, broken, and missing telemetry
 ```
 
-Both need Go 1.26.5 and nothing else. No Docker, no database server, no network.
+Both need Go 1.26.10 and nothing else. No Docker, no database server, no network.
 They print newline-delimited JSON and check the result against the expected
 sequence. See [Demo](docs/DEMO.md) for what each line means.
 
